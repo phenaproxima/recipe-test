@@ -86,9 +86,22 @@
             "drupal-recipe"
         ],
         "patches": {
-            "drupal/core": {
-                "Add recipe support": "https://git.drupalcode.org/project/distributions_recipes/-/raw/patch/recipe-10.1.x.patch"
-            }
+            "drupal/core": [
+                {
+                    "description": "Add recipe support",
+                    "url": "https://git.drupalcode.org/project/distributions_recipes/-/raw/patch/recipe-10.1.x.patch"
+                },
+                {
+                    "description": "#3390919: Support rolling back recipes that fail to apply",
+                    "url": "https://git.drupalcode.org/project/distributions_recipes/-/merge_requests/59.diff",
+                    "extra": {
+                        "freeform": {
+                            "executable": "git",
+                            "args": "apply --verbose --directory=web ./patches/59-54961ee020906de864beef63df670aa82ef81c0a.diff"
+                        }
+                    }
+                }
+            ]
         }
     }
 }
