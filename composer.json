@@ -20,7 +20,7 @@
     },
     "require": {
         "composer/installers": "^2.0",
-        "cweagans/composer-patches": "^1.7",
+        "cweagans/composer-patches": "^2@beta",
         "drupal/core-composer-scaffold": "^10.1",
         "drupal/core-recommended": "^10.1",
         "drush/drush": "^12.4",
