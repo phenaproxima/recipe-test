@@ -1,5 +1,5 @@
 {
-    "_hash": "3a6eeb4f2e9fe0134f3476201e6e7d0d9ba5987e05938938e1dec495d91803fd",
+    "_hash": "d2a3665e45f4be99b7268ef516af6743a3c4ebf57b15e41d0ede32aa02f349ff",
     "patches": {
         "drupal/core": [
             {
@@ -14,12 +14,12 @@
                 "package": "drupal/core",
                 "description": "#3390919: Support rolling back recipes that fail to apply",
                 "url": "https://git.drupalcode.org/project/distributions_recipes/-/merge_requests/59.diff",
-                "sha256": "dfb7cb1ec3f6e2023d0eac91cb8f9d9f74e92b260f1a165b698acfb911c71245",
+                "sha256": "c90c19d1f2c8e58dd8259943a131912707a6aa100be06084d85cf879a37abbe6",
                 "depth": 2,
                 "extra": {
                     "freeform": {
                         "executable": "git",
-                        "args": "apply --verbose --directory=web ./patches/59-54961ee020906de864beef63df670aa82ef81c0a.diff"
+                        "args": "apply --verbose --directory=web ./patches/59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff"
                     }
                 }
             }
