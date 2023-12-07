@@ -21,8 +21,8 @@
     "require": {
         "composer/installers": "^2.0",
         "cweagans/composer-patches": "^2@beta",
-        "drupal/core-composer-scaffold": "^10.1",
-        "drupal/core-recommended": "^10.1",
+        "drupal/core-composer-scaffold": "^10.2",
+        "drupal/core-recommended": "^10.2",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
         "oomphinc/composer-installers-extender": "^2.0"
@@ -30,7 +30,7 @@
     "conflict": {
         "drupal/drupal": "*"
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "RC",
     "prefer-stable": true,
     "config": {
         "allow-plugins": {
@@ -89,7 +89,7 @@
             "drupal/core": [
                 {
                     "description": "Add recipe support",
-                    "url": "https://git.drupalcode.org/project/distributions_recipes/-/raw/patch/recipe-10.1.x.patch"
+                    "url": "https://git.drupalcode.org/project/distributions_recipes/-/raw/patch/recipe-10.2.x.patch"
                 },
                 {
                     "description": "#3390919: Support rolling back recipes that fail to apply",
