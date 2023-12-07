@@ -21,8 +21,8 @@
     "require": {
         "composer/installers": "^2.0",
         "cweagans/composer-patches": "^2@beta",
-        "drupal/core-composer-scaffold": "^10.2",
-        "drupal/core-recommended": "^10.2",
+        "drupal/core-composer-scaffold": "10.2.0-rc1",
+        "drupal/core-recommended": "10.2.0-rc1",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
         "oomphinc/composer-installers-extender": "^2.0"
@@ -86,22 +86,11 @@
             "drupal-recipe"
         ],
         "patches": {
-            "drupal/core": [
-                {
-                    "description": "Add recipe support",
-                    "url": "https://git.drupalcode.org/project/distributions_recipes/-/raw/patch/recipe-10.2.x.patch"
-                },
-                {
-                    "description": "#3390919: Support rolling back recipes that fail to apply",
-                    "url": "https://git.drupalcode.org/project/distributions_recipes/-/merge_requests/59.diff",
-                    "extra": {
-                        "freeform": {
-                            "executable": "git",
-                            "args": "apply --verbose --directory=web ./patches/59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff"
-                        }
-                    }
-                }
-            ]
+            "drupal/core": {
+                "Remove on 10.2.0-rc2 or later": "./patches/drupal-2c313d6873ac24f3f656482be19c424ae355f1cf.patch",
+                "Dispatch config events for changes in non-default collections": "./patches/drupal-5665-ef5be1292587905b91d95b0d9650d09467b6ff09.diff",
+                "Support checkpoints recording config storage changes": "./patches/distributions_recipes-59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff"
+            }
         }
     }
 }

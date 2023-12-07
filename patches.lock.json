@@ -1,27 +1,30 @@
 {
-    "_hash": "d8a33fa62c0035fbcd9c28495d2154284d97b829b480f09b83bda0620864b353",
+    "_hash": "eb78439ba7f47f95d9d255cef16322a82f31b0dcf39f02bc82898d0fb2ba4364",
     "patches": {
         "drupal/core": [
             {
                 "package": "drupal/core",
-                "description": "Add recipe support",
-                "url": "https://git.drupalcode.org/project/distributions_recipes/-/raw/patch/recipe-10.2.x.patch",
-                "sha256": "a4d15706b3ba9c9fcf6aa3b866d2c1105854de8658e81f8b9c8d71c6f677b3d6",
+                "description": "Remove on 10.2.0-rc2 or later",
+                "url": "./patches/drupal-2c313d6873ac24f3f656482be19c424ae355f1cf.patch",
+                "sha256": "860f37cd89e35d97ee36c128020974dcaaae8c11ff72cb3fd2494bd2a94e315f",
                 "depth": 2,
                 "extra": []
             },
             {
                 "package": "drupal/core",
-                "description": "#3390919: Support rolling back recipes that fail to apply",
-                "url": "https://git.drupalcode.org/project/distributions_recipes/-/merge_requests/59.diff",
-                "sha256": "c90c19d1f2c8e58dd8259943a131912707a6aa100be06084d85cf879a37abbe6",
+                "description": "Dispatch config events for changes in non-default collections",
+                "url": "./patches/drupal-5665-ef5be1292587905b91d95b0d9650d09467b6ff09.diff",
+                "sha256": "4b28bcd8c487cd92b02438dc61ef852934bf98489b3fc9bcd5868241d7283f0b",
                 "depth": 2,
-                "extra": {
-                    "freeform": {
-                        "executable": "git",
-                        "args": "apply --verbose --directory=web ./patches/59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff"
-                    }
-                }
+                "extra": []
+            },
+            {
+                "package": "drupal/core",
+                "description": "Support checkpoints recording config storage changes",
+                "url": "./patches/distributions_recipes-59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff",
+                "sha256": "d8af24cf2e8911c8fe2679404d46689f998646e375128a8d02b5f6dcf12e1fa2",
+                "depth": 2,
+                "extra": []
             }
         ]
     }

@@ -754,24 +754,6 @@ index 0000000000000000000000000000000000000000..78e8460fc9134f3ed6d6642a0224ae72
 +  }
 +
 +}
-diff --git a/core/lib/Drupal/Core/Config/ConfigManager.php b/core/lib/Drupal/Core/Config/ConfigManager.php
-index 5db500f2fed49627dacbc867b753c7e1a4dd42d7..31ed47da2b16b7168b8ae4a223d55ac8a5de2798 100644
---- a/core/lib/Drupal/Core/Config/ConfigManager.php
-+++ b/core/lib/Drupal/Core/Config/ConfigManager.php
-@@ -220,7 +220,12 @@ public function uninstall($type, $name) {
-     // Remove any matching configuration from collections.
-     foreach ($this->activeStorage->getAllCollectionNames() as $collection) {
-       $collection_storage = $this->activeStorage->createCollection($collection);
--      $collection_storage->deleteAll($name . '.');
-+      // @todo https://www.drupal.org/project/drupal/issues/3405800 Fix core.
-+      foreach ($collection_storage->listAll($name . '.') as $config_name) {
-+        $config = new Config($config_name, $collection_storage, $this->eventDispatcher, $this->typedConfigManager);
-+        $config->initWithData($collection_storage->read($config_name));
-+        $config->delete();
-+      }
-     }
-
-     $schema_dir = $this->extensionPathResolver->getPath($type, $name) . '/' . InstallStorage::CONFIG_SCHEMA_DIRECTORY;
 diff --git a/core/tests/Drupal/KernelTests/Core/Config/Storage/Checkpoint/CheckpointStorageTest.php b/core/tests/Drupal/KernelTests/Core/Config/Storage/Checkpoint/CheckpointStorageTest.php
 new file mode 100644
 index 0000000000000000000000000000000000000000..2558b2e34ad3b7849d11441668c8dc097f915b03

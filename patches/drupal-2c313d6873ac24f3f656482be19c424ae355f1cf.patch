@@ -1,0 +1,57 @@
+From 2c313d6873ac24f3f656482be19c424ae355f1cf Mon Sep 17 00:00:00 2001
+From: catch <catch@35733.no-reply.drupal.org>
+Date: Mon, 4 Dec 2023 13:33:48 +0000
+Subject: [PATCH] Issue #3405798 by alexpott, bircher: Config deleted during
+ import does not have correct initial values set
+
+(cherry picked from commit cf5e2c1767f422f48942332b89d7f03262760738)
+---
+ core/lib/Drupal/Core/Config/ConfigImporter.php         |  6 +++---
+ .../KernelTests/Core/Config/ConfigImporterTest.php     | 10 ++++++++++
+ 2 files changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/core/lib/Drupal/Core/Config/ConfigImporter.php b/core/lib/Drupal/Core/Config/ConfigImporter.php
+index 3be2b32273..7c161a5f24 100644
+--- a/core/lib/Drupal/Core/Config/ConfigImporter.php
++++ b/core/lib/Drupal/Core/Config/ConfigImporter.php
+@@ -992,13 +992,13 @@ protected function importConfig($collection, $op, $name) {
+     else {
+       $config = new Config($name, $this->storageComparer->getTargetStorage($collection), $this->eventDispatcher, $this->typedConfigManager);
+     }
++    if ($old_data = $this->storageComparer->getTargetStorage($collection)->read($name)) {
++      $config->initWithData($old_data);
++    }
+     if ($op == 'delete') {
+       $config->delete();
+     }
+     else {
+-      if ($old_data = $this->storageComparer->getTargetStorage($collection)->read($name)) {
+-        $config->initWithData($old_data);
+-      }
+       $data = $this->storageComparer->getSourceStorage($collection)->read($name);
+       $config->setData($data ? $data : []);
+       $config->save();
+diff --git a/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php b/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
+index bbdae7a4fb..9f4b9aa31b 100644
+--- a/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
++++ b/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
+@@ -918,6 +918,16 @@ public function testConfigEvents(): void {
+     $this->assertSame(['key' => 'bar'], $event['current_config_data']);
+     $this->assertSame(['key' => 'bar'], $event['raw_config_data']);
+     $this->assertSame(['key' => 'foo'], $event['original_config_data']);
++
++    // Import the configuration that deletes 'config_events_test.test'.
++    $this->container->get('config.storage.sync')->delete('config_events_test.test');
++    $this->configImporter()->import();
++    $this->assertFalse($this->container->get('config.storage')->exists('config_events_test.test'));
++    $event = \Drupal::state()->get('config_events_test.event', []);
++    $this->assertSame(ConfigEvents::DELETE, $event['event_name']);
++    $this->assertSame([], $event['current_config_data']);
++    $this->assertSame([], $event['raw_config_data']);
++    $this->assertSame(['key' => 'bar'], $event['original_config_data']);
+   }
+ 
+   /**
+-- 
+2.39.3 (Apple Git-145)
+

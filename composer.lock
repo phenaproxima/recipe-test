@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5d2180fab038837678db8aebdf481798",
+    "content-hash": "7bf12f3c0fa05bb4e371a2dde12f72d3",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -6296,6 +6296,8 @@
     "minimum-stability": "RC",
     "stability-flags": {
         "cweagans/composer-patches": 10,
+        "drupal/core-composer-scaffold": 5,
+        "drupal/core-recommended": 5,
         "ewcomposer/unpack": 20
     },
     "prefer-stable": true,
