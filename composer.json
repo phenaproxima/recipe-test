@@ -25,6 +25,7 @@
         "drupal/core-recommended": "11.x-dev",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
+        "mglaman/composer-drupal-lenient": "^1.0",
         "oomphinc/composer-installers-extender": "^2.0"
     },
     "conflict": {
@@ -40,7 +41,8 @@
             "dealerdirect/phpcodesniffer-composer-installer": true,
             "cweagans/composer-patches": true,
             "oomphinc/composer-installers-extender": true,
-            "ewcomposer/unpack": true
+            "ewcomposer/unpack": true,
+            "mglaman/composer-drupal-lenient": true
         },
         "sort-packages": true
     },
