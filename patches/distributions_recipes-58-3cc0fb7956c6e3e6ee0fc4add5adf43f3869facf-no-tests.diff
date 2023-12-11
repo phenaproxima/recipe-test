@@ -35,10 +35,37 @@ index 0000000000..c3c4be2369
 +
 +}
 diff --git a/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php b/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
-index 70d6308d22..37a68743ee 100644
+index 70d6308d22..e18d7527b3 100644
 --- a/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
 +++ b/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
-@@ -58,6 +58,17 @@ public function installRecipeConfig(ConfigConfigurator $recipe_config): void {
+@@ -23,7 +23,6 @@ public function installRecipeConfig(ConfigConfigurator $recipe_config): void {
+     // Build the list of possible configuration to create.
+     $list = $storage->listAll();
+ 
+-    $enabled_extensions = $this->getEnabledExtensions();
+     $existing_config = $this->getActiveStorages()->listAll();
+ 
+     // Filter the list of configuration to only include configuration that
+@@ -39,8 +38,6 @@ public function installRecipeConfig(ConfigConfigurator $recipe_config): void {
+       return;
+     }
+ 
+-    $all_config = array_merge($existing_config, $list);
+-    $all_config = array_combine($all_config, $all_config);
+     $config_to_create = $storage->readMultiple($list);
+ 
+     // Sort $config_to_create in the order of the least dependent first.
+@@ -48,16 +45,21 @@ public function installRecipeConfig(ConfigConfigurator $recipe_config): void {
+     $dependency_manager->setData($config_to_create);
+     $config_to_create = array_merge(array_flip($dependency_manager->sortAll()), $config_to_create);
+ 
+-    foreach ($config_to_create as $config_name => $data) {
+-      if (!$this->validateDependencies($config_name, $data, $enabled_extensions, $all_config)) {
+-        throw new RecipeUnmetDependenciesException($config_name, sprintf("The configuration '%s' has unmet dependencies", $config_name));
+-      }
+-    }
+-
+     // Create the optional configuration if there is any left after filtering.
      if (!empty($config_to_create)) {
        $this->createConfiguration(StorageInterface::DEFAULT_COLLECTION, $config_to_create);
      }

@@ -1,5 +1,5 @@
 {
-    "_hash": "74fa7db9d90bd380c80451f4ff79361e5f51f6b6f8d6205606d6d086c21e44c5",
+    "_hash": "1c47e855c1e685e8293e66c6cf41bd6c4c3a59230b29e62fde2d8855b08b1504",
     "patches": {
         "drupal/core": [
             {
@@ -22,7 +22,7 @@
                 "package": "drupal/core",
                 "description": "Roll back config changes on recipe failure",
                 "url": "./patches/distributions_recipes-58-3cc0fb7956c6e3e6ee0fc4add5adf43f3869facf-no-tests.diff",
-                "sha256": "c9939d39d04653cc8bd254f35feb5534d83fec8ceb305dde02980d1f4f05ada2",
+                "sha256": "e8c4dfe0f23dda05511e720f122af7bf349773bbc3775cf9a21a8622120cc117",
                 "depth": 2,
                 "extra": []
             }
