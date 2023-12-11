@@ -1,20 +1,12 @@
 {
-    "_hash": "eb78439ba7f47f95d9d255cef16322a82f31b0dcf39f02bc82898d0fb2ba4364",
+    "_hash": "027192b8b2031656c0e2cb9d096a7d8e2377247fd1cbfefb1010b000ee536559",
     "patches": {
         "drupal/core": [
             {
                 "package": "drupal/core",
-                "description": "Remove on 10.2.0-rc2 or later",
-                "url": "./patches/drupal-2c313d6873ac24f3f656482be19c424ae355f1cf.patch",
-                "sha256": "860f37cd89e35d97ee36c128020974dcaaae8c11ff72cb3fd2494bd2a94e315f",
-                "depth": 2,
-                "extra": []
-            },
-            {
-                "package": "drupal/core",
-                "description": "Dispatch config events for changes in non-default collections",
-                "url": "./patches/drupal-5665-ef5be1292587905b91d95b0d9650d09467b6ff09.diff",
-                "sha256": "4b28bcd8c487cd92b02438dc61ef852934bf98489b3fc9bcd5868241d7283f0b",
+                "description": "Add recipe support",
+                "url": "./patches/recipe-11.x-d550e9ea04b586bd32dd9aa6c7c53a157981702f.patch",
+                "sha256": "20544e487f0751770fe31a25cc9db377bd34eaf6401d746b641da5faa5e262a5",
                 "depth": 2,
                 "extra": []
             },
