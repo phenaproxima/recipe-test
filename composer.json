@@ -89,9 +89,6 @@
             "drupal-recipe"
         ],
         "patches": {
-            "drupal/admin_toolbar": {
-                "Declare compatibility with Drupal 11.x-dev": "./patches/admin_toolbar-3.x-core_version_requirement.diff"
-            },
             "drupal/core": {
                 "Add recipe support": "./patches/recipe-11.x-d550e9ea04b586bd32dd9aa6c7c53a157981702f.patch",
                 "Support checkpoints recording config storage changes": "./patches/distributions_recipes-59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff",

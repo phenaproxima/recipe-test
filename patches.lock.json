@@ -1,16 +1,6 @@
 {
-    "_hash": "7e733e8b1777f13216cc9959d6293523c2047f4c55a46a250f36eded29eed059",
+    "_hash": "a06c5b3eb20f8fa595f830bce82746be1d3dfacae2c60c30732f7cdf799d6917",
     "patches": {
-        "drupal/admin_toolbar": [
-            {
-                "package": "drupal/admin_toolbar",
-                "description": "Declare compatibility with Drupal 11.x-dev",
-                "url": "./patches/admin_toolbar-3.x-core_version_requirement.diff",
-                "sha256": "8bad5abbec645c392627a0ba1a918cccfb839bf98b6ad51df10731013366d5e0",
-                "depth": 1,
-                "extra": []
-            }
-        ],
         "drupal/core": [
             {
                 "package": "drupal/core",
