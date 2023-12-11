@@ -103,5 +103,15 @@
                 "drupal/gin_toolbar"
             ]
         }
+    },
+    "autoload": {
+        "psr-4": {
+            "phen\\": "src"
+        }
+    },
+    "scripts": {
+        "post-create-project-cmd": "phen\\Scripts::rewriteInfoFiles",
+        "post-install-cmd": "phen\\Scripts::rewriteInfoFiles",
+        "post-update-cmd": "phen\\Scripts::rewriteInfoFiles"
     }
 }
