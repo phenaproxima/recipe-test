@@ -29,4 +29,16 @@ final class Scripts {
     }
   }
 
+  /**
+   * Changes the gin-admin-experience recipe to enable testing.
+   */
+  public static function rewriteRecipe(): void {
+    $path = 'web/recipes/gin-admin-experience/recipe.yml';
+    $data = file_get_contents($path);
+    $data = Yaml::decode($data);
+    unset($data['actions']);
+    $data['install'] = array_diff($data['install'], ['help']);
+    file_put_contents($path, Yaml::encode($data));
+  }
+
 }

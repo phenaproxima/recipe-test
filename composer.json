@@ -110,8 +110,11 @@
         }
     },
     "scripts": {
-        "post-create-project-cmd": "phen\\Scripts::rewriteInfoFiles",
-        "post-install-cmd": "phen\\Scripts::rewriteInfoFiles",
-        "post-update-cmd": "phen\\Scripts::rewriteInfoFiles"
+        "post-create-project-cmd": [
+            "phen\\Scripts::rewriteInfoFiles",
+            "phen\\Scripts::rewriteRecipe"
+        ],
+        "post-install-cmd": "@post-create-project-cmd",
+        "post-update-cmd": "@post-create-project-cmd"
     }
 }
