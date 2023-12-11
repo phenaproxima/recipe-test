@@ -1,3 +1,61 @@
+diff --git a/core/lib/Drupal/Core/Recipe/InvalidConfigException.php b/core/lib/Drupal/Core/Recipe/InvalidConfigException.php
+new file mode 100644
+index 0000000000..c3c4be2369
+--- /dev/null
++++ b/core/lib/Drupal/Core/Recipe/InvalidConfigException.php
+@@ -0,0 +1,30 @@
++<?php
++
++namespace Drupal\Core\Recipe;
++
++use Drupal\Core\Config\Schema\Mapping;
++use Symfony\Component\Validator\ConstraintViolationList;
++
++final class InvalidConfigException extends \RuntimeException {
++
++  public function __construct(
++    public readonly ConstraintViolationList $violations,
++    public readonly Mapping $data,
++    string $message = '',
++    int $code = 0,
++    ?\Throwable $previous = NULL,
++  ) {
++    parent::__construct($message ?: (string) $violations, $code, $previous);
++  }
++
++  public function rethrow(): never {
++    throw new static(
++      $this->violations,
++      $this->data,
++      $this->getMessage(),
++      $this->getCode(),
++      $this,
++    );
++  }
++
++}
+diff --git a/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php b/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
+index 70d6308d22..37a68743ee 100644
+--- a/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
++++ b/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
+@@ -58,6 +58,17 @@ public function installRecipeConfig(ConfigConfigurator $recipe_config): void {
+     if (!empty($config_to_create)) {
+       $this->createConfiguration(StorageInterface::DEFAULT_COLLECTION, $config_to_create);
+     }
++
++    foreach ($config_to_create as $name => $data) {
++      // All config objects are mappings.
++      /** @var \Drupal\Core\Config\Schema\Mapping $typed_config */
++      $typed_config = $this->typedConfig->createFromNameAndData($name, $data);
++      /** @var \Symfony\Component\Validator\ConstraintViolationList $violations */
++      $violations = $typed_config->validate();
++      if (count($violations) > 0) {
++        throw new InvalidConfigException($violations, $typed_config);
++      }
++    }
+   }
+ 
+ }
 diff --git a/core/lib/Drupal/Core/Recipe/RecipeRunner.php b/core/lib/Drupal/Core/Recipe/RecipeRunner.php
 index 5670c1f871..c5bf0d6322 100644
 --- a/core/lib/Drupal/Core/Recipe/RecipeRunner.php
