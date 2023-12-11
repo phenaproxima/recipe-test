@@ -22,7 +22,7 @@
         "composer/installers": "^2.0",
         "cweagans/composer-patches": "^2@beta",
         "drupal/core-composer-scaffold": "10.2.0-rc1",
-        "drupal/core-recommended": "10.2.0-rc1",
+        "drupal/core-recommended": "11.x-dev",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
         "oomphinc/composer-installers-extender": "^2.0"
@@ -30,7 +30,7 @@
     "conflict": {
         "drupal/drupal": "*"
     },
-    "minimum-stability": "RC",
+    "minimum-stability": "dev",
     "prefer-stable": true,
     "config": {
         "allow-plugins": {
