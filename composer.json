@@ -25,6 +25,7 @@
         "drupal/core-recommended": "11.x-dev",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
+        "kanopi/gin-admin-experience": "^0.1.5",
         "mglaman/composer-drupal-lenient": "^1.0",
         "oomphinc/composer-installers-extender": "^2.0"
     },
@@ -93,6 +94,14 @@
                 "Support checkpoints recording config storage changes": "./patches/distributions_recipes-59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff",
                 "Roll back config changes on recipe failure": "./patches/distributions_recipes-58-3cc0fb7956c6e3e6ee0fc4add5adf43f3869facf-no-tests.diff"
             }
+        },
+        "drupal-lenient": {
+            "allowed-list": [
+                "drupal/admin_toolbar",
+                "drupal/gin",
+                "drupal/gin_login",
+                "drupal/gin_toolbar"
+            ]
         }
     }
 }
