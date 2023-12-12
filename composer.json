@@ -21,6 +21,7 @@
     "require": {
         "composer/installers": "^2.0",
         "cweagans/composer-patches": "^2@beta",
+        "drupal/automatic_updates": "3.0.x-dev",
         "drupal/core-composer-scaffold": "10.2.0-rc1",
         "drupal/core-recommended": "11.x-dev",
         "drush/drush": "^12.4",
@@ -98,6 +99,7 @@
         "drupal-lenient": {
             "allowed-list": [
                 "drupal/admin_toolbar",
+                "drupal/automatic_updates",
                 "drupal/gin",
                 "drupal/gin_login",
                 "drupal/gin_toolbar"
