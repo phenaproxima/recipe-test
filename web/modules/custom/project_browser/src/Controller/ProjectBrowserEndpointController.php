@@ -6,6 +6,7 @@ namespace Drupal\project_browser\Controller;
 
 use Drupal\Component\Serialization\Json;
 use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Cache\NullBackend;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\project_browser\EnabledSourceHandler;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -41,7 +42,7 @@ class ProjectBrowserEndpointController extends ControllerBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('project_browser.enabled_source'),
-      $container->get('cache.project_browser'),
+      new NullBackend('project_browser'),
     );
   }
 
