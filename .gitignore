@@ -1,4 +1,9 @@
 /.editorconfig
 /.gitattributes
 /vendor
-/web
+/web/core
+/web/*/contrib
+/web/sites
+/web/*.*
+/web/.*
+/web/*/README.txt

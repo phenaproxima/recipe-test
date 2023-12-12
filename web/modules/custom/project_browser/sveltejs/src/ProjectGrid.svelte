@@ -1,0 +1,82 @@
+<script context="module">
+  import Search from './Search/Search.svelte';
+  import Filter from './Filter.svelte';
+  import Loading from './Loading.svelte';
+  import { pageSize, activeTab, mediaQueryValues } from './stores';
+
+  export { Search, Filter };
+</script>
+
+<script>
+  import { setContext } from 'svelte';
+
+  const { Drupal } = window;
+
+  export let loading = false;
+  export let page = 0;
+  export let pageIndex = 0;
+  export let toggleView;
+  export let rows;
+  export let labels = {
+    empty: Drupal.t('No modules found'),
+    loading: Drupal.t('Loading data'),
+  };
+
+  let mqMatches;
+  mediaQueryValues.subscribe((mqlMap) => {
+    mqMatches = mqlMap.get('(min-width: 1200px)');
+  });
+
+  $: isDesktop = mqMatches;
+  $: filteredRows = rows;
+  $: visibleRows = filteredRows
+    ? filteredRows.slice(pageIndex, pageIndex + $pageSize)
+    : [];
+
+  setContext('state', {
+    getState: () => ({
+      page,
+      pageIndex,
+      pageSize,
+      rows,
+      filteredRows,
+    }),
+    setPage: (_page, _pageIndex) => {
+      page = _page;
+      pageIndex = _pageIndex;
+    },
+    setRows: (_rows) => {
+      filteredRows = _rows;
+    },
+  });
+</script>
+
+<!--Aligns Category filter and Grid cards side by side-->
+<slot name="head" />
+<div class="project-browser__container">
+  <aside class="project-browser__aside">
+    <slot name="left" />
+  </aside>
+  <div class="project-browser__main">
+    <div class="projects-container">
+      {#if loading}
+        <Loading />
+      {:else if visibleRows.length === 0}
+        <div>{@html labels.empty}</div>
+      {:else}
+        <ul
+          class="projects-{isDesktop ? toggleView.toLowerCase() : 'list'}"
+          id={$activeTab}
+          role="tabpanel"
+          tabindex="0"
+          aria-labelledby={$activeTab}
+        >
+          <slot rows={visibleRows} />
+        </ul>
+      {/if}
+      <slot name="foot" />
+    </div>
+  </div>
+</div>
+
+<slot name="bottom" />

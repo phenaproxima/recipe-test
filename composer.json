@@ -78,7 +78,7 @@
             "web/profiles/custom/{$name}": [
                 "type:drupal-custom-profile"
             ],
-            "web/recipes/{$name}": [
+            "web/recipes/contrib/{$name}": [
                 "type:drupal-recipe"
             ],
             "web/themes/custom/{$name}": [
