@@ -74,7 +74,7 @@ class Recipes extends ProjectBrowserSourceBase {
       ->setProjectStatus(1)
       ->setProjectUsageTotal(-1);
 
-    return new ProjectsResultsPage(count($list), $list, 'Recipes', $this->getPluginId(), FALSE);
+    return new ProjectsResultsPage(count($list), $list, 'Recipes', $this->getPluginId(), TRUE);
   }
 
   /**

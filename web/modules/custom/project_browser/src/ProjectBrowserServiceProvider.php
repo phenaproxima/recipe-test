@@ -18,6 +18,7 @@ use Drupal\package_manager\ComposerInspector;
 use Drupal\package_manager\FailureMarker;
 use Drupal\package_manager\PathLocator;
 use Drupal\project_browser\ComposerInstaller\Installer;
+use Drupal\project_browser\ComposerInstaller\RecipeInstaller;
 use Drupal\project_browser\ComposerInstaller\Validator\CoreNotUpdatedValidator;
 use Drupal\project_browser\ComposerInstaller\Validator\PackageNotInstalledValidator;
 use PhpTuf\ComposerStager\API\Core\BeginnerInterface;
@@ -36,6 +37,20 @@ class ProjectBrowserServiceProvider extends ServiceProviderBase {
       parent::register($container);
       $container->register('project_browser.installer')
         ->setClass(Installer::class)
+        ->setArguments([
+          new Reference(PathLocator::class),
+          new Reference(BeginnerInterface::class),
+          new Reference(StagerInterface::class),
+          new Reference(CommitterInterface::class),
+          new Reference('queue'),
+          new Reference('event_dispatcher'),
+          new Reference('tempstore.shared'),
+          new Reference('datetime.time'),
+          new Reference(PathFactoryInterface::class),
+          new Reference(FailureMarker::class),
+        ]);
+      $container->register('project_browser.recipe_installer')
+        ->setClass(RecipeInstaller::class)
         ->setArguments([
           new Reference(PathLocator::class),
           new Reference(BeginnerInterface::class),

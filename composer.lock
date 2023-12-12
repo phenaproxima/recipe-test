@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d86b1375baa963669c8878b8b2f027a8",
+    "content-hash": "7bab28a185655168801d3e1d01350634",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -1342,133 +1342,6 @@
             "support": {
                 "source": "https://git.drupalcode.org/project/admin_toolbar",
                 "issues": "https://www.drupal.org/project/issues/admin_toolbar"
-            }
-        },
-        {
-            "name": "drupal/automatic_updates",
-            "version": "dev-3.0.x",
-            "source": {
-                "type": "git",
-                "url": "https://git.drupalcode.org/project/automatic_updates.git",
-                "reference": "1edb15aae3a824acaee870501722d11d3a3333dc"
-            },
-            "require": {
-                "composer-runtime-api": "^2.1",
-                "drupal/core": "^8 || ^9 || ^10 || ^11",
-                "ext-json": "*",
-                "php-tuf/composer-stager": "^2.0.0-beta3",
-                "symfony/console": "^6.2"
-            },
-            "require-dev": {
-                "colinodell/psr-testlogger": "^1.2",
-                "symfony/config": "^6.2"
-            },
-            "bin": [
-                "auto-update"
-            ],
-            "type": "drupal-module",
-            "extra": {
-                "branch-alias": {
-                    "dev-3.0.x": "3.0.x-dev"
-                },
-                "drupal": {
-                    "version": "3.0.0-beta1+4-dev",
-                    "datestamp": "1701977409",
-                    "security-coverage": {
-                        "status": "not-covered",
-                        "message": "Dev releases are not covered by Drupal security advisories."
-                    }
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Drupal\\automatic_updates\\Development\\": "scripts/src"
-                }
-            },
-            "notification-url": "https://packages.drupal.org/8/downloads",
-            "scripts": {
-                "phpcbf": [
-                    "scripts/phpcbf.sh"
-                ],
-                "phpcs": [
-                    "scripts/phpcs.sh"
-                ],
-                "test": [
-                    "Composer\\Config::disableProcessTimeout",
-                    "scripts/phpunit.sh"
-                ],
-                "core-convert": [
-                    "Drupal\\automatic_updates\\Development\\Converter::doConvert"
-                ],
-                "core-commit": [
-                    "Drupal\\automatic_updates\\Development\\Converter::makeCommit"
-                ]
-            },
-            "license": [
-                "GPL-2.0-or-later"
-            ],
-            "authors": [
-                {
-                    "name": "David Strauss",
-                    "homepage": "https://www.drupal.org/user/93254"
-                },
-                {
-                    "name": "drumm",
-                    "homepage": "https://www.drupal.org/user/3064"
-                },
-                {
-                    "name": "dstol",
-                    "homepage": "https://www.drupal.org/user/329570"
-                },
-                {
-                    "name": "heddn",
-                    "homepage": "https://www.drupal.org/user/1463982"
-                },
-                {
-                    "name": "hestenet",
-                    "homepage": "https://www.drupal.org/user/54034"
-                },
-                {
-                    "name": "mbaynton",
-                    "homepage": "https://www.drupal.org/user/2303520"
-                },
-                {
-                    "name": "Mixologic",
-                    "homepage": "https://www.drupal.org/user/391689"
-                },
-                {
-                    "name": "mlhess",
-                    "homepage": "https://www.drupal.org/user/102818"
-                },
-                {
-                    "name": "phenaproxima",
-                    "homepage": "https://www.drupal.org/user/205645"
-                },
-                {
-                    "name": "pwolanin",
-                    "homepage": "https://www.drupal.org/user/49851"
-                },
-                {
-                    "name": "tedbow",
-                    "homepage": "https://www.drupal.org/user/240860"
-                },
-                {
-                    "name": "Wim Leers",
-                    "homepage": "https://www.drupal.org/user/99777"
-                },
-                {
-                    "name": "xjm",
-                    "homepage": "https://www.drupal.org/user/65776"
-                }
-            ],
-            "description": "Drupal Automatic Updates",
-            "homepage": "https://www.drupal.org/project/automatic_updates",
-            "keywords": [
-                "Drupal"
-            ],
-            "support": {
-                "source": "http://cgit.drupalcode.org/automatic_updates",
-                "issues": "https://www.drupal.org/project/issues/automatic_updates"
             }
         },
         {
@@ -6861,9 +6734,9 @@
     "minimum-stability": "dev",
     "stability-flags": {
         "cweagans/composer-patches": 10,
-        "drupal/automatic_updates": 20,
         "drupal/core-recommended": 20,
-        "ewcomposer/unpack": 20
+        "ewcomposer/unpack": 20,
+        "php-tuf/composer-stager": 10
     },
     "prefer-stable": true,
     "prefer-lowest": false,

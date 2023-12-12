@@ -21,14 +21,14 @@
     "require": {
         "composer/installers": "^2.0",
         "cweagans/composer-patches": "^2@beta",
-        "drupal/automatic_updates": "3.0.x-dev",
         "drupal/core-composer-scaffold": "10.2.0-rc1",
         "drupal/core-recommended": "11.x-dev",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
         "kanopi/gin-admin-experience": "^0.1.5",
         "mglaman/composer-drupal-lenient": "^1.0",
-        "oomphinc/composer-installers-extender": "^2.0"
+        "oomphinc/composer-installers-extender": "^2.0",
+        "php-tuf/composer-stager": "^2@beta"
     },
     "conflict": {
         "drupal/drupal": "*"
@@ -99,12 +99,12 @@
         "drupal-lenient": {
             "allowed-list": [
                 "drupal/admin_toolbar",
-                "drupal/automatic_updates",
                 "drupal/gin",
                 "drupal/gin_login",
                 "drupal/gin_toolbar"
             ]
-        }
+        },
+        "composer-exit-on-patch-failure": "true"
     },
     "autoload": {
         "psr-4": {
