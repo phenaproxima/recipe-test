@@ -1,4 +1,0 @@
-enabled_sources:
-  - recipes
-allow_ui_install: true
-disable_add_new_module: true

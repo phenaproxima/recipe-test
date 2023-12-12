@@ -34,11 +34,13 @@ final class Scripts {
    */
   public static function rewriteRecipe(): void {
     $path = 'web/recipes/contrib/gin-admin-experience/recipe.yml';
-    $data = file_get_contents($path);
-    $data = Yaml::decode($data);
-    unset($data['actions']);
-    $data['install'] = array_diff($data['install'], ['help']);
-    file_put_contents($path, Yaml::encode($data));
+    if (file_exists($path)) {
+      $data = file_get_contents($path);
+      $data = Yaml::decode($data);
+      unset($data['actions']);
+      $data['install'] = array_diff($data['install'], ['help']);
+      file_put_contents($path, Yaml::encode($data));
+    }
   }
 
 }
