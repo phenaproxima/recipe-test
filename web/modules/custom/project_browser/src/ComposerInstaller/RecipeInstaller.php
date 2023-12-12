@@ -16,6 +16,7 @@ use PhpTuf\ComposerStager\API\Path\Value\PathInterface;
 use PhpTuf\ComposerStager\API\Path\Value\PathListInterface;
 use PhpTuf\ComposerStager\API\Process\Service\OutputCallbackInterface;
 use PhpTuf\ComposerStager\API\Process\Service\ProcessInterface;
+use Symfony\Component\Process\Process;
 use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 class RecipeInstaller extends StageBase {
@@ -68,6 +69,19 @@ class RecipeInstaller extends StageBase {
     parent::__construct($pathLocator, $beginner, $stager, $committer,
       $queueFactory, $eventDispatcher, $tempStoreFactory, $time, $pathFactory,
       $failureMarker);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function require(array $runtime, array $dev = [], ?int $timeout = 300): void {
+    [$package_name] = explode(':', reset($runtime), 2);
+    $recipe_path = match ($package_name) {
+      'kanopi/gin-admin-experience' => 'recipes/contrib/gin-admin-experience',
+      'drupal/spotify-media-type' => 'recipes/custom/spotify-media-type',
+    };
+    $process = new Process([PHP_BINARY, 'core/scripts/drupal', 'recipe', $recipe_path], \Drupal::root());
+    $process->mustRun();
   }
 
   public function lockCameFromProjectBrowserInstaller(): bool {

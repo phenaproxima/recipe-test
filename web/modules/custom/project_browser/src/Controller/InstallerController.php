@@ -11,6 +11,7 @@ use Drupal\Core\TempStore\SharedTempStoreFactory;
 use Drupal\Core\Url;
 use Drupal\package_manager\Exception\StageException;
 use Drupal\project_browser\ComposerInstaller\Installer;
+use Drupal\project_browser\ComposerInstaller\RecipeInstaller;
 use Drupal\project_browser\EnabledSourceHandler;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -57,7 +58,7 @@ class InstallerController extends ControllerBase {
   protected SharedTempStore $projectBrowserTempStore;
 
   public function __construct(
-    private readonly Installer $installer,
+    private readonly RecipeInstaller $installer,
     SharedTempStoreFactory $shared_temp_store_factory,
     private readonly ModuleInstallerInterface $moduleInstaller,
     private readonly EnabledSourceHandler $enabledSourceHandler,
@@ -72,7 +73,7 @@ class InstallerController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('project_browser.installer'),
+      $container->get('project_browser.recipe_installer'),
       $container->get('project_browser.tempstore.shared'),
       $container->get('module_installer'),
       $container->get('project_browser.enabled_source'),

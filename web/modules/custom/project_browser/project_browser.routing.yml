@@ -34,12 +34,5 @@ project_browser.settings:
   requirements:
     _permission: 'administer site configuration'
 
-project_browser.recipe.apply:
-  path: '/project-browser/apply-recipe/{which}'
-  defaults:
-    _controller: '\Drupal\project_browser\Controller\RecipeController::applyRecipe'
-  requirements:
-    _access: 'TRUE'
-
 route_callbacks:
   - '\Drupal\project_browser\Routing\ProjectBrowserRoutes::routes'
