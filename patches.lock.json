@@ -1,5 +1,5 @@
 {
-    "_hash": "1c47e855c1e685e8293e66c6cf41bd6c4c3a59230b29e62fde2d8855b08b1504",
+    "_hash": "09fe6feebef3a2e1dc010a8e37f12dd1ebe227e8cd8dc43bb2b4aa8ef4ef1376",
     "patches": {
         "drupal/core": [
             {
@@ -24,6 +24,16 @@
                 "url": "./patches/distributions_recipes-58-3cc0fb7956c6e3e6ee0fc4add5adf43f3869facf-no-tests.diff",
                 "sha256": "e8c4dfe0f23dda05511e720f122af7bf349773bbc3775cf9a21a8622120cc117",
                 "depth": 2,
+                "extra": []
+            }
+        ],
+        "drupal/project_browser": [
+            {
+                "package": "drupal/project_browser",
+                "description": "Various fixes to 1.0.x for demo purposes",
+                "url": "./patches/project_browser-1.0.x-fixes.diff",
+                "sha256": "93ff305c80417faa2187bf8fe076ee0c4eb8fe0772398f71c78a32dd3cc66ff3",
+                "depth": 1,
                 "extra": []
             }
         ]

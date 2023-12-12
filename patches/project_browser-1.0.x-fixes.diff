@@ -1,0 +1,49 @@
+diff --git a/src/ComposerInstaller/Installer.php b/src/ComposerInstaller/Installer.php
+index 8d7bc1d..d0ebad9 100644
+--- a/src/ComposerInstaller/Installer.php
++++ b/src/ComposerInstaller/Installer.php
+@@ -14,6 +14,11 @@ use Drupal\package_manager\StageBase;
+  */
+ final class Installer extends StageBase {
+ 
++  /**
++   * {@inheritdoc}
++   */
++  protected string $type = 'project_browser.installer';
++
+   /**
+    * Checks if the stage tempstore lock was created by Project Browser.
+    *
+diff --git a/src/Controller/InstallerController.php b/src/Controller/InstallerController.php
+index aa32429..066a7f7 100644
+--- a/src/Controller/InstallerController.php
++++ b/src/Controller/InstallerController.php
+@@ -307,14 +307,6 @@ class InstallerController extends ControllerBase {
+    *   Status message.
+    */
+   public function begin(string $composer_namespace, string $project_id): JsonResponse {
+-    // @todo Expand to support other plugins in https://drupal.org/i/3312354.
+-    $source = $this->enabledSourceHandler->getCurrentSources()['drupalorg_mockapi'] ?? NULL;
+-    if ($source === NULL) {
+-      return new JsonResponse(['message' => "Cannot download $project_id from any available source"], 500);
+-    }
+-    if (!$source->isProjectSafe($project_id)) {
+-      return new JsonResponse(['message' => "$project_id is not safe to add because its security coverage has been revoked"], 500);
+-    }
+     $stage_available = $this->installer->isAvailable();
+     if (!$stage_available) {
+       $requiring_metadata = $this->projectBrowserTempStore->getMetadata('requiring');
+diff --git a/src/Routing/ProjectBrowserRoutes.php b/src/Routing/ProjectBrowserRoutes.php
+index 7fac98d..2fadf5a 100644
+--- a/src/Routing/ProjectBrowserRoutes.php
++++ b/src/Routing/ProjectBrowserRoutes.php
+@@ -40,8 +40,7 @@ class ProjectBrowserRoutes implements ContainerInjectionInterface {
+       return [];
+     }
+     $routes = [];
+-    $machine_name_regex = '[a-zA-Z0-9_]+';
+-    $stage_id_regex = '[a-zA-Z0-9_-]+';
++    $machine_name_regex = $stage_id_regex = '[a-zA-Z0-9_-]+';
+     $routes['project_browser.stage.begin'] = new Route(
+       '/admin/modules/project_browser/install-begin/{composer_namespace}/{project_id}',
+       [
