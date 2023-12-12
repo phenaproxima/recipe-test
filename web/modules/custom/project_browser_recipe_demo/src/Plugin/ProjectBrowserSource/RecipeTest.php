@@ -34,7 +34,7 @@ class RecipeTest extends ProjectBrowserSourceBase {
       ->setSummary([
         'value' => 'A beautiful administrative experience based on the Gin theme.',
       ])
-      ->setMachineName('gin_admin_experience')
+      ->setMachineName('gin_login')
       ->setLogo([
         'file' => [
           'uri' => '/core/misc/druplicon.png',

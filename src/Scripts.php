@@ -37,8 +37,7 @@ final class Scripts {
     if (file_exists($path)) {
       $data = file_get_contents($path);
       $data = Yaml::decode($data);
-      unset($data['actions']);
-      $data['install'] = array_diff($data['install'], ['help']);
+      unset($data['config']['actions']);
       file_put_contents($path, Yaml::encode($data));
     }
   }
