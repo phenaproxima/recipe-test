@@ -28,6 +28,7 @@
         "drupal/project_browser": "1.0.x-dev",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
+        "kanopi/gin-admin-experience": "^0.1.5",
         "oomphinc/composer-installers-extender": "^2.0"
     },
     "conflict": {
@@ -95,14 +96,12 @@
             },
             "drupal/project_browser": {
                 "Various fixes to 1.0.x for demo purposes": "./patches/project_browser-1.0.x-fixes.diff"
+            },
+            "kanopi/gin-admin-experience": {
+                "Various fixes to 0.1.5 for demo purposes": "./patches/gin-admin-experience-0.1.5-fixes.diff"
             }
         },
         "composer-exit-on-patch-failure": true
-    },
-    "autoload": {
-        "psr-4": {
-            "phen\\": "src"
-        }
     },
     "scripts": {
         "clean": "@composer remove kanopi/gin-admin-experience",
@@ -118,7 +117,6 @@
             "drush watchdog:delete all --yes"
         ],
         "post-create-project-cmd": [
-            "phen\\Scripts::rewriteRecipe",
             "find web -type d -name .git -delete"
         ],
         "post-install-cmd": "@post-create-project-cmd",

@@ -1,5 +1,5 @@
 {
-    "_hash": "4f836afb7d718c22e09f1f1fd787d030d24e428bb4aab6d16bd18743c36b95c1",
+    "_hash": "dd762475badc6d722499fceb11fad95286287c26e6c00d03bfbc9e314a09c901",
     "patches": {
         "drupal/core": [
             {
@@ -25,6 +25,16 @@
                 "description": "Various fixes to 1.0.x for demo purposes",
                 "url": "./patches/project_browser-1.0.x-fixes.diff",
                 "sha256": "93ff305c80417faa2187bf8fe076ee0c4eb8fe0772398f71c78a32dd3cc66ff3",
+                "depth": 1,
+                "extra": []
+            }
+        ],
+        "kanopi/gin-admin-experience": [
+            {
+                "package": "kanopi/gin-admin-experience",
+                "description": "Various fixes to 0.1.5 for demo purposes",
+                "url": "./patches/gin-admin-experience-0.1.5-fixes.diff",
+                "sha256": "cbe01e4090ea6bbc0eb08fc123556c1f113c2a548c9d0cfe320564aa51692cc1",
                 "depth": 1,
                 "extra": []
             }
