@@ -7,10 +7,15 @@ use Drupal\Core\State\StateInterface;
 use Drupal\package_manager\ComposerInspector;
 use Drupal\package_manager\Event\PostApplyEvent;
 use Drupal\package_manager\Event\PostRequireEvent;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
+use Psr\Log\NullLogger;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Process\Process;
 
-class RecipeApplicator implements EventSubscriberInterface {
+class RecipeApplicator implements EventSubscriberInterface, LoggerAwareInterface {
+
+  use LoggerAwareTrait;
 
   private const STATE_KEY = 'staged_recipes';
 
@@ -18,7 +23,9 @@ class RecipeApplicator implements EventSubscriberInterface {
     private readonly StateInterface $state,
     private readonly ComposerInspector $inspector,
     private readonly string $appRoot,
-  ) {}
+  ) {
+    $this->setLogger(new NullLogger());
+  }
 
   /**
    * {@inheritdoc}
@@ -40,6 +47,9 @@ class RecipeApplicator implements EventSubscriberInterface {
         $list[] = $name;
       }
     }
+    $this->logger->debug('Recipes were staged: @list', [
+      '@list' => implode(', ', $list),
+    ]);
     $this->state->set(self::STATE_KEY, array_unique($list));
   }
 
