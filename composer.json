@@ -126,7 +126,8 @@
             "drush config:set --yes package_manager.settings executables.composer $PWD/vendor/bin/composer",
             "drush config:set --yes package_manager.settings include_unknown_files_in_project_root true --input-format=yaml",
             "drush config:set --yes project_browser.admin_settings allow_ui_install true --input-format=yaml",
-            "drush config:set --yes project_browser.admin_settings enabled_sources '[drupalorg_mockapi, recipe_test]' --input-format=yaml"
+            "drush config:set --yes project_browser.admin_settings enabled_sources '[drupalorg_mockapi, recipe_test]' --input-format=yaml",
+            "drush watchdog:delete all --yes"
         ],
         "post-create-project-cmd": [
             "phen\\Scripts::rewriteInfoFiles",
