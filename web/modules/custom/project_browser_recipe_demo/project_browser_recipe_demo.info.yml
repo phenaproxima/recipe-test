@@ -1,6 +1,6 @@
 name: 'Project Browser recipe demo'
 type: module
-core_version_requirement: '^11 || ^11'
+core_version_requirement: '^10'
 description: 'Wires together a demo of installing and applying a recipe using Project Browser.'
 dependencies:
   - 'automatic_updates:package_manager'

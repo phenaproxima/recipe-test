@@ -1,5 +1,5 @@
 diff --git a/core/core.services.yml b/core/core.services.yml
-index 7ee598ee6f..1ceea46906 100644
+index 72ff560296..32eacfd0a4 100644
 --- a/core/core.services.yml
 +++ b/core/core.services.yml
 @@ -65,6 +65,10 @@ parameters:
@@ -13,7 +13,7 @@ index 7ee598ee6f..1ceea46906 100644
    # Simple cache contexts, directly derived from the request context.
    cache_context.ip:
      class: Drupal\Core\Cache\Context\IpCacheContext
-@@ -385,6 +389,14 @@ services:
+@@ -360,6 +364,14 @@ services:
      public: false
      tags:
        - { name: backend_overridable }
@@ -1725,6 +1725,405 @@ index 0000000000..1d6dd928f2
 + */
 +final class UnknownCheckpointException extends \RuntimeException {
 +}
+diff --git a/core/lib/Drupal/Core/Config/Config.php b/core/lib/Drupal/Core/Config/Config.php
+index abcb41fe7e..9048403a2f 100644
+--- a/core/lib/Drupal/Core/Config/Config.php
++++ b/core/lib/Drupal/Core/Config/Config.php
+@@ -226,7 +226,8 @@ public function save($has_trusted_data = FALSE) {
+       Cache::invalidateTags($this->getCacheTags());
+     }
+     $this->isNew = FALSE;
+-    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigEvents::SAVE);
++    $event_name = $this->getStorage()->getCollectionName() === StorageInterface::DEFAULT_COLLECTION ? ConfigEvents::SAVE : ConfigCollectionEvents::SAVE_IN_COLLECTION;
++    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), $event_name);
+     $this->originalData = $this->data;
+     return $this;
+   }
+@@ -243,21 +244,12 @@ public function delete() {
+     Cache::invalidateTags($this->getCacheTags());
+     $this->isNew = TRUE;
+     $this->resetOverriddenData();
+-    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigEvents::DELETE);
++    $event_name = $this->getStorage()->getCollectionName() === StorageInterface::DEFAULT_COLLECTION ? ConfigEvents::DELETE : ConfigCollectionEvents::DELETE_IN_COLLECTION;
++    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), $event_name);
+     $this->originalData = $this->data;
+     return $this;
+   }
+ 
+-  /**
+-   * Gets the raw data without overrides.
+-   *
+-   * @return array
+-   *   The raw data.
+-   */
+-  public function getRawData() {
+-    return $this->data;
+-  }
+-
+   /**
+    * Gets original data from this configuration object.
+    *
+diff --git a/core/lib/Drupal/Core/Config/ConfigCollectionEvents.php b/core/lib/Drupal/Core/Config/ConfigCollectionEvents.php
+new file mode 100644
+index 0000000000..e965953986
+--- /dev/null
++++ b/core/lib/Drupal/Core/Config/ConfigCollectionEvents.php
+@@ -0,0 +1,105 @@
++<?php
++
++namespace Drupal\Core\Config;
++
++/**
++ * Defines events for working with configuration collections.
++ *
++ * Configuration collections are often used to store configuration-related
++ * data, like overrides. The use case is determined by the module that provides
++ * the collection. A classic example is to store the translated parts of
++ * various configuration objects. Using a collection allows this data to be
++ * imported and exported alongside regular configuration. It also allows the
++ * data to be created when installing an extension. In both the import/export
++ * and extension installation situations, collection data is stored in
++ * subdirectories.
++ *
++ * @see \Drupal\Core\Config\ConfigCrudEvent
++ */
++final class ConfigCollectionEvents {
++
++  /**
++   * Event dispatched when saving configuration not in the default collection.
++   *
++   * This event allows modules to react whenever an object that extends
++   * \Drupal\Core\Config\StorableConfigBase is saved in a non-default
++   * collection. The event listener method receives a
++   * \Drupal\Core\Config\ConfigCrudEvent instance.
++   *
++   * Note: this event is not used for configuration in the default collection.
++   * See \Drupal\Core\Config\ConfigEvents::SAVE instead.
++   *
++   * @Event
++   *
++   * @var string
++   *
++   * @see \Drupal\Core\Config\ConfigCrudEvent
++   * @see \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject()
++   * @see \Drupal\language\Config\LanguageConfigOverride::save()
++   *
++   * @see \Drupal\Core\Config\ConfigEvents::SAVE
++   */
++  const SAVE_IN_COLLECTION = 'config.save.collection';
++
++  /**
++   * Event dispatched when deleting configuration not in the default collection.
++   *
++   * This event allows modules to react whenever an object that extends
++   * \Drupal\Core\Config\StorableConfigBase is deleted in a non-default
++   * collection. The event listener method receives a
++   * \Drupal\Core\Config\ConfigCrudEvent instance.
++   *
++   * Note: this event is not used for configuration in the default collection.
++   * See \Drupal\Core\Config\ConfigEvents::DELETE instead.
++   *
++   * @Event
++   *
++   * @see \Drupal\Core\Config\ConfigEvents::DELETE
++   * @see \Drupal\Core\Config\ConfigCrudEvent
++   * @see \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject()
++   * @see \Drupal\language\Config\LanguageConfigOverride::delete()
++   *
++   * @var string
++   */
++  const DELETE_IN_COLLECTION = 'config.delete.collection';
++
++  /**
++   * Event dispatched when renaming configuration not in the default collection.
++   *
++   * This event allows modules to react whenever an object that extends
++   * \Drupal\Core\Config\StorableConfigBase is renamed in a non-default
++   * collection. The event listener method receives a
++   * \Drupal\Core\Config\ConfigCrudEvent instance.
++   *
++   * Note: this event is not used for configuration in the default collection.
++   * See \Drupal\Core\Config\ConfigEvents::RENAME instead.
++   *
++   * @Event
++   *
++   * @see \Drupal\Core\Config\ConfigEvents::RENAME
++   * @see \Drupal\Core\Config\ConfigCrudEvent
++   * @see \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject()
++   *
++   * @var string
++   */
++  const RENAME_IN_COLLECTION = 'config.rename.collection';
++
++  /**
++   * Event dispatched to collect information on all config collections.
++   *
++   * This event allows modules to add to the list of configuration collections
++   * retrieved by \Drupal\Core\Config\ConfigManager::getConfigCollectionInfo().
++   * The event listener method receives a
++   * \Drupal\Core\Config\ConfigCollectionInfo instance.
++   *
++   * @Event
++   *
++   * @see \Drupal\Core\Config\ConfigCollectionInfo
++   * @see \Drupal\Core\Config\ConfigManager::getConfigCollectionInfo()
++   * @see \Drupal\Core\Config\ConfigFactoryOverrideBase
++   *
++   * @var string
++   */
++  const COLLECTION_INFO = 'config.collection_info';
++
++}
+diff --git a/core/lib/Drupal/Core/Config/ConfigCrudEvent.php b/core/lib/Drupal/Core/Config/ConfigCrudEvent.php
+index 639e3031b4..63048bd753 100644
+--- a/core/lib/Drupal/Core/Config/ConfigCrudEvent.php
++++ b/core/lib/Drupal/Core/Config/ConfigCrudEvent.php
+@@ -19,17 +19,17 @@ class ConfigCrudEvent extends Event {
+   /**
+    * Constructs a configuration event object.
+    *
+-   * @param \Drupal\Core\Config\Config $config
++   * @param \Drupal\Core\Config\StorableConfigBase $config
+    *   Configuration object.
+    */
+-  public function __construct(Config $config) {
++  public function __construct(StorableConfigBase $config) {
+     $this->config = $config;
+   }
+ 
+   /**
+    * Gets configuration object.
+    *
+-   * @return \Drupal\Core\Config\Config
++   * @return \Drupal\Core\Config\StorableConfigBase
+    *   The configuration object that caused the event to fire.
+    */
+   public function getConfig() {
+diff --git a/core/lib/Drupal/Core/Config/ConfigEvents.php b/core/lib/Drupal/Core/Config/ConfigEvents.php
+index 8aa2d8d65f..ffb186c299 100644
+--- a/core/lib/Drupal/Core/Config/ConfigEvents.php
++++ b/core/lib/Drupal/Core/Config/ConfigEvents.php
+@@ -140,8 +140,13 @@ final class ConfigEvents {
+    * @see \Drupal\Core\Config\ConfigFactoryOverrideBase
+    *
+    * @var string
++   *
++   * @deprecated in drupal:10.3.0 and is removed from drupal:11.0.0. Use
++   *    \Drupal\Core\Config\ConfigCollectionEvents::COLLECTION_INFO instead.
++   *
++   * @see https://www.drupal.org/node/3406105
+    */
+-  const COLLECTION_INFO = 'config.collection_info';
++  const COLLECTION_INFO = ConfigCollectionEvents::COLLECTION_INFO;
+ 
+   /**
+    * Name of the event fired just before importing configuration.
+diff --git a/core/lib/Drupal/Core/Config/ConfigFactory.php b/core/lib/Drupal/Core/Config/ConfigFactory.php
+index ef0e22d482..e29c3710cc 100644
+--- a/core/lib/Drupal/Core/Config/ConfigFactory.php
++++ b/core/lib/Drupal/Core/Config/ConfigFactory.php
+@@ -260,7 +260,8 @@ public function rename($old_name, $new_name) {
+ 
+     // Prime the cache and load the configuration with the correct overrides.
+     $config = $this->get($new_name);
+-    $this->eventDispatcher->dispatch(new ConfigRenameEvent($config, $old_name), ConfigEvents::RENAME);
++    $event_name = $this->storage->getCollectionName() === StorageInterface::DEFAULT_COLLECTION ? ConfigEvents::RENAME : ConfigCollectionEvents::RENAME_IN_COLLECTION;
++    $this->eventDispatcher->dispatch(new ConfigRenameEvent($config, $old_name), $event_name);
+     return $this;
+   }
+ 
+diff --git a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php
+index c859f7f9fc..ac27578a36 100644
+--- a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php
++++ b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php
+@@ -10,7 +10,7 @@
+ abstract class ConfigFactoryOverrideBase implements EventSubscriberInterface {
+ 
+   /**
+-   * Reacts to the ConfigEvents::COLLECTION_INFO event.
++   * Reacts to the ConfigCollectionEvents::COLLECTION_INFO event.
+    *
+    * @param \Drupal\Core\Config\ConfigCollectionInfo $collection_info
+    *   The configuration collection info event.
+@@ -45,7 +45,7 @@ abstract public function onConfigRename(ConfigRenameEvent $event);
+    * {@inheritdoc}
+    */
+   public static function getSubscribedEvents(): array {
+-    $events[ConfigEvents::COLLECTION_INFO][] = ['addCollections'];
++    $events[ConfigCollectionEvents::COLLECTION_INFO][] = ['addCollections'];
+     $events[ConfigEvents::SAVE][] = ['onConfigSave', 20];
+     $events[ConfigEvents::DELETE][] = ['onConfigDelete', 20];
+     $events[ConfigEvents::RENAME][] = ['onConfigRename', 20];
+diff --git a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php
+index 13a78f8369..110b0c91b7 100644
+--- a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php
++++ b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php
+@@ -34,22 +34,32 @@ public function getCacheSuffix();
+    * it can have its own implementation of
+    * \Drupal\Core\Config\StorableConfigBase. Configuration overriders can link
+    * themselves to a configuration collection by listening to the
+-   * \Drupal\Core\Config\ConfigEvents::COLLECTION_INFO event and adding the
+-   * collections they are responsible for. Doing this will allow installation
+-   * and synchronization to use the overrider's implementation of
+-   * StorableConfigBase.
++   * \Drupal\Core\Config\ConfigCollectionEvents::COLLECTION_INFO event and
++   * adding the collections they are responsible for. Doing this will allow
++   * installation and synchronization to use the overrider's implementation of
++   * StorableConfigBase. Additionally, the overrider's implementation should
++   * trigger the appropriate event:
++   * - Saving and creating triggers ConfigCollectionEvents::SAVE_IN_COLLECTION.
++   * - Deleting triggers ConfigCollectionEvents::DELETE_IN_COLLECTION.
++   * - Renaming triggers ConfigCollectionEvents::RENAME_IN_COLLECTION.
+    *
+    * @see \Drupal\Core\Config\ConfigCollectionInfo
+    * @see \Drupal\Core\Config\ConfigImporter::importConfig()
+    * @see \Drupal\Core\Config\ConfigInstaller::createConfiguration()
++   * @see \Drupal\Core\Config\ConfigCollectionEvents::SAVE_IN_COLLECTION
++   * @see \Drupal\Core\Config\ConfigCollectionEvents::DELETE_IN_COLLECTION
++   * @see \Drupal\Core\Config\ConfigCollectionEvents::RENAME_IN_COLLECTION
+    *
+    * @param string $name
+    *   The configuration object name.
+    * @param string $collection
+    *   The configuration collection.
+    *
+-   * @return \Drupal\Core\Config\StorableConfigBase
+-   *   The configuration object for the provided name and collection.
++   * @return \Drupal\Core\Config\StorableConfigBase|null
++   *   The configuration object for the provided name and collection. NULL
++   *   should be returned when the overrider does not use configuration
++   *   collections. For example: a module that provides an overrider to avoid
++   *   storing API keys in config would not use collections.
+    */
+   public function createConfigObject($name, $collection = StorageInterface::DEFAULT_COLLECTION);
+ 
+diff --git a/core/lib/Drupal/Core/Config/ConfigManager.php b/core/lib/Drupal/Core/Config/ConfigManager.php
+index 5db500f2fe..fc49f26bc6 100644
+--- a/core/lib/Drupal/Core/Config/ConfigManager.php
++++ b/core/lib/Drupal/Core/Config/ConfigManager.php
+@@ -220,7 +220,17 @@ public function uninstall($type, $name) {
+     // Remove any matching configuration from collections.
+     foreach ($this->activeStorage->getAllCollectionNames() as $collection) {
+       $collection_storage = $this->activeStorage->createCollection($collection);
+-      $collection_storage->deleteAll($name . '.');
++      $overrider = $this->getConfigCollectionInfo()->getOverrideService($collection);
++      foreach ($collection_storage->listAll($name . '.') as $config_name) {
++        if ($overrider) {
++          $config = $overrider->createConfigObject($config_name, $collection);
++        }
++        else {
++          $config = new Config($config_name, $collection_storage, $this->eventDispatcher, $this->typedConfigManager);
++        }
++        $config->initWithData($collection_storage->read($config_name));
++        $config->delete();
++      }
+     }
+ 
+     $schema_dir = $this->extensionPathResolver->getPath($type, $name) . '/' . InstallStorage::CONFIG_SCHEMA_DIRECTORY;
+@@ -391,7 +401,7 @@ public function getConfigEntitiesToChangeOnDependencyRemoval($type, array $names
+   public function getConfigCollectionInfo() {
+     if (!isset($this->configCollectionInfo)) {
+       $this->configCollectionInfo = new ConfigCollectionInfo();
+-      $this->eventDispatcher->dispatch($this->configCollectionInfo, ConfigEvents::COLLECTION_INFO);
++      $this->eventDispatcher->dispatch($this->configCollectionInfo, ConfigCollectionEvents::COLLECTION_INFO);
+     }
+     return $this->configCollectionInfo;
+   }
+diff --git a/core/lib/Drupal/Core/Config/ConfigRenameEvent.php b/core/lib/Drupal/Core/Config/ConfigRenameEvent.php
+index 8f71559809..ba7441a0fa 100644
+--- a/core/lib/Drupal/Core/Config/ConfigRenameEvent.php
++++ b/core/lib/Drupal/Core/Config/ConfigRenameEvent.php
+@@ -17,12 +17,12 @@ class ConfigRenameEvent extends ConfigCrudEvent {
+   /**
+    * Constructs the config rename event.
+    *
+-   * @param \Drupal\Core\Config\Config $config
++   * @param \Drupal\Core\Config\StorableConfigBase $config
+    *   The configuration that has been renamed.
+    * @param string $old_name
+    *   The old configuration object name.
+    */
+-  public function __construct(Config $config, $old_name) {
++  public function __construct(StorableConfigBase $config, $old_name) {
+     $this->config = $config;
+     $this->oldName = $old_name;
+   }
+diff --git a/core/lib/Drupal/Core/Config/StorableConfigBase.php b/core/lib/Drupal/Core/Config/StorableConfigBase.php
+index ae521919d0..750f8f4f5e 100644
+--- a/core/lib/Drupal/Core/Config/StorableConfigBase.php
++++ b/core/lib/Drupal/Core/Config/StorableConfigBase.php
+@@ -2,6 +2,7 @@
+ 
+ namespace Drupal\Core\Config;
+ 
++use Drupal\Component\Utility\NestedArray;
+ use Drupal\Core\Config\Schema\Ignore;
+ use Drupal\Core\Config\Schema\Mapping;
+ use Drupal\Core\Config\Schema\Sequence;
+@@ -121,6 +122,47 @@ public function getStorage() {
+     return $this->storage;
+   }
+ 
++  /**
++   * Gets original data from this configuration object.
++   *
++   * Original data is the data as it is immediately after loading from
++   * configuration storage before any changes. If this is a new configuration
++   * object it will be an empty array.
++   *
++   * @see \Drupal\Core\Config\Config::get()
++   *
++   * @param string $key
++   *   A string that maps to a key within the configuration data.
++   *
++   * @return mixed
++   *   The data that was requested.
++   */
++  public function getOriginal($key = '') {
++    $original_data = $this->originalData;
++
++    if (empty($key)) {
++      return $original_data;
++    }
++
++    $parts = explode('.', $key);
++    if (count($parts) == 1) {
++      return $original_data[$key] ?? NULL;
++    }
++
++    $value = NestedArray::getValue($original_data, $parts, $key_exists);
++    return $key_exists ? $value : NULL;
++  }
++
++  /**
++   * Gets the raw data without any manipulations.
++   *
++   * @return array
++   *   The raw data.
++   */
++  public function getRawData() {
++    return $this->data;
++  }
++
+   /**
+    * Gets the schema wrapper for the whole configuration object.
+    *
+diff --git a/core/lib/Drupal/Core/Config/StorageInterface.php b/core/lib/Drupal/Core/Config/StorageInterface.php
+index b2e6d4abb0..9a2908cfc7 100644
+--- a/core/lib/Drupal/Core/Config/StorageInterface.php
++++ b/core/lib/Drupal/Core/Config/StorageInterface.php
+@@ -7,6 +7,11 @@
+  *
+  * Classes implementing this interface allow reading and writing configuration
+  * data from and to the storage.
++ *
++ * Note: this should never be used directly to work with active configuration.
++ * The values returned from it do not have the expected overrides and writing
++ * directly to the storage does not trigger configuration events. Use the
++ * 'config.factory' service and the configuration objects it provides.
+  */
+ interface StorageInterface {
+ 
 diff --git a/core/lib/Drupal/Core/Entity/EntityDisplayBase.php b/core/lib/Drupal/Core/Entity/EntityDisplayBase.php
 index 768835903f..4951ef32d7 100644
 --- a/core/lib/Drupal/Core/Entity/EntityDisplayBase.php
@@ -3106,8 +3505,103 @@ index 0000000000..d19474c620
 +  }
 +
 +}
+diff --git a/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml b/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml
+index 3ee0d2360d..6526996af2 100644
+--- a/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml
++++ b/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml
+@@ -1,5 +1,5 @@
+ services:
+-  config_events_test.event_subscriber:
++  config_collection_install_test.event_subscriber:
+     class: Drupal\config_collection_install_test\EventSubscriber
+     arguments: ['@state']
+     tags:
+diff --git a/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php b/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php
+index 7f6a60f237..bc907ce3cd 100644
+--- a/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php
++++ b/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php
+@@ -2,8 +2,8 @@
+ 
+ namespace Drupal\config_collection_install_test;
+ 
++use Drupal\Core\Config\ConfigCollectionEvents;
+ use Drupal\Core\Config\ConfigCollectionInfo;
+-use Drupal\Core\Config\ConfigEvents;
+ use Drupal\Core\State\StateInterface;
+ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+ 
+@@ -27,7 +27,7 @@ public function __construct(StateInterface $state) {
+   }
+ 
+   /**
+-   * Reacts to the ConfigEvents::COLLECTION_INFO event.
++   * Reacts to the ConfigCollectionEvents::COLLECTION_INFO event.
+    *
+    * @param \Drupal\Core\Config\ConfigCollectionInfo $collection_info
+    *   The configuration collection info event.
+@@ -43,7 +43,7 @@ public function addCollections(ConfigCollectionInfo $collection_info) {
+    * {@inheritdoc}
+    */
+   public static function getSubscribedEvents(): array {
+-    $events[ConfigEvents::COLLECTION_INFO][] = ['addCollections'];
++    $events[ConfigCollectionEvents::COLLECTION_INFO][] = ['addCollections'];
+     return $events;
+   }
+ 
+diff --git a/core/modules/config/tests/config_events_test/src/EventSubscriber.php b/core/modules/config/tests/config_events_test/src/EventSubscriber.php
+index 8a79b8b606..bca146547b 100644
+--- a/core/modules/config/tests/config_events_test/src/EventSubscriber.php
++++ b/core/modules/config/tests/config_events_test/src/EventSubscriber.php
+@@ -2,6 +2,7 @@
+ 
+ namespace Drupal\config_events_test;
+ 
++use Drupal\Core\Config\ConfigCollectionEvents;
+ use Drupal\Core\Config\ConfigCrudEvent;
+ use Drupal\Core\Config\ConfigEvents;
+ use Drupal\Core\State\StateInterface;
+@@ -31,17 +32,24 @@ public function __construct(StateInterface $state) {
+    *
+    * @param \Drupal\Core\Config\ConfigCrudEvent $event
+    *   The configuration event.
+-   * @param string $name
++   * @param string $event_name
+    *   The event name.
+    */
+-  public function configEventRecorder(ConfigCrudEvent $event, $name) {
++  public function configEventRecorder(ConfigCrudEvent $event, $event_name) {
+     $config = $event->getConfig();
+-    $this->state->set('config_events_test.event', [
+-      'event_name' => $name,
++    $event_info = [
++      'event_name' => $event_name,
+       'current_config_data' => $config->get(),
+       'original_config_data' => $config->getOriginal(),
+       'raw_config_data' => $config->getRawData(),
+-    ]);
++    ];
++    $this->state->set('config_events_test.event', $event_info);
++
++    // Record all events that occur.
++    $all_events = $this->state->get('config_events_test.all_events', []);
++    $config_name = $config->getName();
++    $all_events[$event_name][$config_name][] = $event_info;
++    $this->state->set('config_events_test.all_events', $all_events);
+   }
+ 
+   /**
+@@ -51,6 +59,9 @@ public static function getSubscribedEvents(): array {
+     $events[ConfigEvents::SAVE][] = ['configEventRecorder'];
+     $events[ConfigEvents::DELETE][] = ['configEventRecorder'];
+     $events[ConfigEvents::RENAME][] = ['configEventRecorder'];
++    $events[ConfigCollectionEvents::SAVE_IN_COLLECTION][] = ['configEventRecorder'];
++    $events[ConfigCollectionEvents::DELETE_IN_COLLECTION][] = ['configEventRecorder'];
++    $events[ConfigCollectionEvents::RENAME_IN_COLLECTION][] = ['configEventRecorder'];
+     return $events;
+   }
+ 
 diff --git a/core/modules/config/tests/config_test/config/schema/config_test.schema.yml b/core/modules/config/tests/config_test/config/schema/config_test.schema.yml
-index 723738bebf..31a8aeb824 100644
+index 2a707facb0..b6b59ec5e3 100644
 --- a/core/modules/config/tests/config_test/config/schema/config_test.schema.yml
 +++ b/core/modules/config/tests/config_test/config/schema/config_test.schema.yml
 @@ -24,6 +24,9 @@ config_test_dynamic:
@@ -3395,6 +3889,253 @@ index b47ed360cd..17da5a274f 100644
    public function setFilterConfig($instance_id, array $configuration) {
      $this->filters[$instance_id] = $configuration;
      if (isset($this->filterCollection)) {
+diff --git a/core/modules/language/src/Config/LanguageConfigOverride.php b/core/modules/language/src/Config/LanguageConfigOverride.php
+index 3b3b4da3c6..e55425d233 100644
+--- a/core/modules/language/src/Config/LanguageConfigOverride.php
++++ b/core/modules/language/src/Config/LanguageConfigOverride.php
+@@ -3,6 +3,8 @@
+ namespace Drupal\language\Config;
+ 
+ use Drupal\Core\Cache\Cache;
++use Drupal\Core\Config\ConfigCollectionEvents;
++use Drupal\Core\Config\ConfigCrudEvent;
+ use Drupal\Core\Config\StorableConfigBase;
+ use Drupal\Core\Config\StorageInterface;
+ use Drupal\Core\Config\TypedConfigManagerInterface;
+@@ -62,6 +64,11 @@ public function save($has_trusted_data = FALSE) {
+     // an update of configuration, but only for a specific language.
+     Cache::invalidateTags($this->getCacheTags());
+     $this->isNew = FALSE;
++    // Dispatch configuration override event as detailed in
++    // \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject().
++    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigCollectionEvents::SAVE_IN_COLLECTION);
++    // Dispatch an event specifically for language configuration override
++    // changes.
+     $this->eventDispatcher->dispatch(new LanguageConfigOverrideCrudEvent($this), LanguageConfigOverrideEvents::SAVE_OVERRIDE);
+     $this->originalData = $this->data;
+     return $this;
+@@ -75,6 +82,11 @@ public function delete() {
+     $this->storage->delete($this->name);
+     Cache::invalidateTags($this->getCacheTags());
+     $this->isNew = TRUE;
++    // Dispatch configuration override event as detailed in
++    // \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject().
++    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigCollectionEvents::DELETE_IN_COLLECTION);
++    // Dispatch an event specifically for language configuration override
++    // changes.
+     $this->eventDispatcher->dispatch(new LanguageConfigOverrideCrudEvent($this), LanguageConfigOverrideEvents::DELETE_OVERRIDE);
+     $this->originalData = $this->data;
+     return $this;
+diff --git a/core/modules/language/tests/language_events_test/config/schema/config_events_test.schema.yml b/core/modules/language/tests/language_events_test/config/schema/config_events_test.schema.yml
+new file mode 100644
+index 0000000000..2153cc24fa
+--- /dev/null
++++ b/core/modules/language/tests/language_events_test/config/schema/config_events_test.schema.yml
+@@ -0,0 +1,7 @@
++config_events_test.test:
++  type: config_object
++  label: 'Configuration events test'
++  mapping:
++    key:
++      type: string
++      label: 'Value'
+diff --git a/core/modules/language/tests/language_events_test/language_events_test.info.yml b/core/modules/language/tests/language_events_test/language_events_test.info.yml
+new file mode 100644
+index 0000000000..0bf0bd633e
+--- /dev/null
++++ b/core/modules/language/tests/language_events_test/language_events_test.info.yml
+@@ -0,0 +1,4 @@
++name: 'Language events test'
++type: module
++package: Testing
++version: VERSION
+diff --git a/core/modules/language/tests/language_events_test/language_events_test.services.yml b/core/modules/language/tests/language_events_test/language_events_test.services.yml
+new file mode 100644
+index 0000000000..5bba4650ee
+--- /dev/null
++++ b/core/modules/language/tests/language_events_test/language_events_test.services.yml
+@@ -0,0 +1,6 @@
++services:
++  language_events_test.event_subscriber:
++    class: Drupal\language_events_test\EventSubscriber
++    arguments: ['@state']
++    tags:
++      - { name: event_subscriber }
+diff --git a/core/modules/language/tests/language_events_test/src/EventSubscriber.php b/core/modules/language/tests/language_events_test/src/EventSubscriber.php
+new file mode 100644
+index 0000000000..e805b9fc62
+--- /dev/null
++++ b/core/modules/language/tests/language_events_test/src/EventSubscriber.php
+@@ -0,0 +1,56 @@
++<?php
++
++namespace Drupal\language_events_test;
++
++use Drupal\Core\State\StateInterface;
++use Drupal\language\Config\LanguageConfigOverrideEvents;
++use Drupal\language\Config\LanguageConfigOverrideCrudEvent;
++use Symfony\Component\EventDispatcher\EventSubscriberInterface;
++
++class EventSubscriber implements EventSubscriberInterface {
++
++  /**
++   * Constructs the Event Subscriber object.
++   *
++   * @param \Drupal\Core\State\StateInterface $state
++   *   The state key value store.
++   */
++  public function __construct(private StateInterface $state) {
++  }
++
++  /**
++   * Reacts to config event.
++   *
++   * @param \Drupal\language\Config\LanguageConfigOverrideCrudEvent $event
++   *   The language configuration event.
++   * @param string $event_name
++   *   The event name.
++   */
++  public function configEventRecorder(LanguageConfigOverrideCrudEvent $event, string $event_name): void {
++    $override = $event->getLanguageConfigOverride();
++    $event_info = [
++      'event_name' => $event_name,
++      'current_override_data' => $override->get(),
++      'original_override_data' => $override->getOriginal(),
++    ];
++
++    // Record all events that occur.
++    $all_events = $this->state->get('language_events_test.all_events', []);
++    $override_name = $override->getName();
++    if (!isset($all_events[$event_name][$override_name])) {
++      $all_events[$event_name][$override_name] = [];
++    }
++    $all_events[$event_name][$override_name][] = $event_info;
++    $this->state->set('language_events_test.all_events', $all_events);
++  }
++
++  /**
++   * {@inheritdoc}
++   */
++  public static function getSubscribedEvents(): array {
++    $events[LanguageConfigOverrideEvents::SAVE_OVERRIDE][] = ['configEventRecorder'];
++    $events[LanguageConfigOverrideEvents::DELETE_OVERRIDE][] = ['configEventRecorder'];
++    return $events;
++  }
++
++}
+diff --git a/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php b/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php
+index 2600627b3a..5657cf7eb3 100644
+--- a/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php
++++ b/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php
+@@ -2,6 +2,7 @@
+ 
+ namespace Drupal\Tests\language\Functional;
+ 
++use Drupal\Core\Config\ConfigCollectionEvents;
+ use Drupal\language\Entity\ConfigurableLanguage;
+ use Drupal\Tests\BrowserTestBase;
+ 
+@@ -91,7 +92,12 @@ public function testConfigOverrideImportEvents() {
+     // Test that no config save event has been fired during the import because
+     // language configuration overrides do not fire events.
+     $event_recorder = \Drupal::state()->get('config_events_test.event', FALSE);
+-    $this->assertFalse($event_recorder);
++    $this->assertSame([
++      'event_name' => ConfigCollectionEvents::SAVE_IN_COLLECTION,
++      'current_config_data' => ['name' => 'FR default site name'],
++      'original_config_data' => [],
++      'raw_config_data' => ['name' => 'FR default site name'],
++    ], $event_recorder);
+ 
+     $this->drupalGet('fr');
+     $this->assertSession()->pageTextContains('FR default site name');
+diff --git a/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php b/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php
+index 1883e93133..20d83179ca 100644
+--- a/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php
++++ b/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php
+@@ -2,6 +2,8 @@
+ 
+ namespace Drupal\Tests\language\Kernel;
+ 
++use Drupal\Core\Config\ConfigCollectionEvents;
++use Drupal\language\Config\LanguageConfigOverrideEvents;
+ use Drupal\language\Entity\ConfigurableLanguage;
+ use Drupal\KernelTests\KernelTestBase;
+ 
+@@ -17,22 +19,71 @@ class LanguageConfigOverrideInstallTest extends KernelTestBase {
+    *
+    * @var array
+    */
+-  protected static $modules = ['language', 'config_events_test'];
++  protected static $modules = ['language', 'config_events_test', 'language_events_test'];
+ 
+   /**
+    * Tests the configuration events are not fired during install of overrides.
+    */
+   public function testLanguageConfigOverrideInstall() {
++    $this->installConfig(['language']);
+     ConfigurableLanguage::createFromLangcode('de')->save();
+     // Need to enable test module after creating the language otherwise saving
+     // the language will install the configuration.
+     $this->enableModules(['language_config_override_test']);
+     \Drupal::state()->set('config_events_test.event', FALSE);
++    \Drupal::state()->set('language_events_test.all_events', []);
+     $this->installConfig(['language_config_override_test']);
++
++    // Ensure the save-in-collection event is triggered when saving data in
++    // config collections during an install.
+     $event_recorder = \Drupal::state()->get('config_events_test.event', FALSE);
+-    $this->assertFalse($event_recorder);
++    $this->assertSame([
++      'event_name' => ConfigCollectionEvents::SAVE_IN_COLLECTION,
++      'current_config_data' => ['name' => 'Deutsch'],
++      'original_config_data' => [],
++      'raw_config_data' => ['name' => 'Deutsch'],
++    ], $event_recorder);
+     $config = \Drupal::service('language.config_factory_override')->getOverride('de', 'language_config_override_test.settings');
+     $this->assertEquals('Deutsch', $config->get('name'));
++
++    // Ensure the save override event is triggered when saving overrides during
++    // an install.
++    $event_recorder = \Drupal::state()->get('language_events_test.all_events', []);
++    $this->assertArrayHasKey(LanguageConfigOverrideEvents::SAVE_OVERRIDE, $event_recorder);
++    $this->assertArrayHasKey('language_config_override_test.settings', $event_recorder[LanguageConfigOverrideEvents::SAVE_OVERRIDE]);
++    $this->assertSame([
++      'event_name' => LanguageConfigOverrideEvents::SAVE_OVERRIDE,
++      'current_override_data' => ['name' => 'Deutsch'],
++      'original_override_data' => [],
++    ], $event_recorder['language.save_override']['language_config_override_test.settings'][0]);
++
++    // Test events during uninstall.
++    \Drupal::state()->set('config_events_test.all_events', []);
++    \Drupal::state()->set('language_events_test.all_events', []);
++    $this->container->get('module_installer')->uninstall(['language_config_override_test']);
++
++    // Ensure the delete-in-collection event is triggered when deleting data in
++    // config collections during an uninstall.
++    $event_recorder = \Drupal::state()->get('config_events_test.all_events', []);
++    $this->assertArrayHasKey(ConfigCollectionEvents::DELETE_IN_COLLECTION, $event_recorder);
++    $this->assertArrayHasKey('language_config_override_test.settings', $event_recorder[ConfigCollectionEvents::DELETE_IN_COLLECTION]);
++    $this->assertSame([
++      'event_name' => ConfigCollectionEvents::DELETE_IN_COLLECTION,
++      'current_config_data' => [],
++      'original_config_data' => ['name' => 'Deutsch'],
++      'raw_config_data' => [],
++    ], $event_recorder[ConfigCollectionEvents::DELETE_IN_COLLECTION]['language_config_override_test.settings'][0]);
++
++    // Ensure the delete override event is triggered when deleting overrides
++    // during an uninstall.
++    $event_recorder = \Drupal::state()->get('language_events_test.all_events', []);
++    $this->assertArrayHasKey(LanguageConfigOverrideEvents::DELETE_OVERRIDE, $event_recorder);
++    $this->assertArrayHasKey('language_config_override_test.settings', $event_recorder[LanguageConfigOverrideEvents::DELETE_OVERRIDE]);
++    $this->assertSame([
++      'event_name' => LanguageConfigOverrideEvents::DELETE_OVERRIDE,
++      'current_override_data' => [],
++      'original_override_data' => ['name' => 'Deutsch'],
++    ], $event_recorder['language.delete_override']['language_config_override_test.settings'][0]);
+   }
+ 
+ }
 diff --git a/core/modules/user/src/Entity/Role.php b/core/modules/user/src/Entity/Role.php
 index 18194f3390..68ddd501f5 100644
 --- a/core/modules/user/src/Entity/Role.php
@@ -3895,6 +4636,112 @@ index 0000000000..3681457776
 +  }
 +
 +}
+diff --git a/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php b/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
+index 9f4b9aa31b..bf17339b8b 100644
+--- a/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
++++ b/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
+@@ -4,6 +4,7 @@
+ 
+ use Drupal\Component\Utility\Html;
+ use Drupal\Component\Render\FormattableMarkup;
++use Drupal\Core\Config\ConfigCollectionEvents;
+ use Drupal\Core\Config\ConfigEvents;
+ use Drupal\Core\Config\ConfigImporter;
+ use Drupal\Core\Config\ConfigImporterException;
+@@ -930,6 +931,44 @@ public function testConfigEvents(): void {
+     $this->assertSame(['key' => 'bar'], $event['original_config_data']);
+   }
+ 
++  /**
++   * Tests events and collections during a config import.
++   */
++  public function testEventsAndCollectionsImport(): void {
++    $collections = [
++      'another_collection',
++      'collection.test1',
++      'collection.test2',
++    ];
++    // Set the event listener to return three possible collections.
++    // @see \Drupal\config_collection_install_test\EventSubscriber
++    \Drupal::state()->set('config_collection_install_test.collection_names', $collections);
++    $this->enableModules(['config_collection_install_test']);
++    $this->installConfig(['config_collection_install_test']);
++
++    // Export the configuration and uninstall the module to test installing it
++    // via configuration import.
++    $this->copyConfig($this->container->get('config.storage'), $this->container->get('config.storage.sync'));
++    $this->container->get('module_installer')->uninstall(['config_collection_install_test']);
++    $this->assertEmpty($this->container->get('config.storage')->getAllCollectionNames());
++
++    \Drupal::state()->set('config_events_test.all_events', []);
++    $this->configImporter()->import();
++    $this->assertSame($collections, $this->container->get('config.storage')->getAllCollectionNames());
++
++    $all_events = \Drupal::state()->get('config_events_test.all_events');
++    $this->assertArrayHasKey('core.extension', $all_events[ConfigEvents::SAVE]);
++    // Ensure that config in collections does not have the regular configuration
++    // event triggered.
++    $this->assertArrayNotHasKey('config_collection_install_test.test', $all_events[ConfigEvents::SAVE]);
++    $this->assertCount(3, $all_events[ConfigCollectionEvents::SAVE_IN_COLLECTION]['config_collection_install_test.test']);
++    $event_collections = [];
++    foreach ($all_events[ConfigCollectionEvents::SAVE_IN_COLLECTION]['config_collection_install_test.test'] as $event) {
++      $event_collections[] = $event['current_config_data']['collection'];
++    }
++    $this->assertSame($collections, $event_collections);
++  }
++
+   /**
+    * Helper method to test custom config installer steps.
+    *
+diff --git a/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php b/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php
+index 604ab1df36..4655ae374e 100644
+--- a/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php
++++ b/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php
+@@ -2,6 +2,7 @@
+ 
+ namespace Drupal\KernelTests\Core\Config;
+ 
++use Drupal\Core\Config\ConfigCollectionEvents;
+ use Drupal\Core\Config\InstallStorage;
+ use Drupal\Core\Config\PreExistingConfigException;
+ use Drupal\Core\Config\UnmetDependenciesException;
+@@ -18,7 +19,7 @@ class ConfigInstallTest extends KernelTestBase {
+   /**
+    * {@inheritdoc}
+    */
+-  protected static $modules = ['system'];
++  protected static $modules = ['system', 'config_events_test'];
+ 
+   /**
+    * {@inheritdoc}
+@@ -146,10 +147,25 @@ public function testCollectionInstallationCollections() {
+ 
+     // Test that the config manager uninstalls configuration from collections
+     // as expected.
+-    \Drupal::service('config.manager')->uninstall('module', 'config_collection_install_test');
++    \Drupal::state()->set('config_events_test.all_events', []);
++    $this->container->get('config.manager')->uninstall('module', 'config_collection_install_test');
++    $all_events = \Drupal::state()->get('config_events_test.all_events');
++    $this->assertArrayHasKey(ConfigCollectionEvents::DELETE_IN_COLLECTION, $all_events);
++    // The delete-in-collection event has been triggered 3 times.
++    $this->assertCount(3, $all_events[ConfigCollectionEvents::DELETE_IN_COLLECTION]['config_collection_install_test.test']);
++    $event_collections = [];
++    foreach ($all_events[ConfigCollectionEvents::DELETE_IN_COLLECTION]['config_collection_install_test.test'] as $event) {
++      $event_collections[] = $event['original_config_data']['collection'];
++    }
++    $this->assertSame(['another_collection', 'collection.test1', 'collection.test2'], $event_collections);
+     $this->assertEquals(['entity'], $active_storage->getAllCollectionNames());
+-    \Drupal::service('config.manager')->uninstall('module', 'config_test');
++
++    \Drupal::state()->set('config_events_test.all_events', []);
++    $this->container->get('config.manager')->uninstall('module', 'config_test');
+     $this->assertEquals([], $active_storage->getAllCollectionNames());
++    $all_events = \Drupal::state()->get('config_events_test.all_events');
++    $this->assertArrayHasKey(ConfigCollectionEvents::DELETE_IN_COLLECTION, $all_events);
++    $this->assertCount(1, $all_events[ConfigCollectionEvents::DELETE_IN_COLLECTION]['config_test.dynamic.dotted.default']);
+   }
+ 
+   /**
 diff --git a/core/tests/Drupal/KernelTests/Core/Config/Storage/Checkpoint/CheckpointStorageTest.php b/core/tests/Drupal/KernelTests/Core/Config/Storage/Checkpoint/CheckpointStorageTest.php
 new file mode 100644
 index 0000000000..9032d234bc
