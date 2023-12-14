@@ -63,6 +63,12 @@ class RecipeApplicator implements EventSubscriberInterface, LoggerAwareInterface
       foreach ($paths as $path) {
         $process = new Process([PHP_BINARY, 'core/scripts/drupal', 'recipe', $path]);
         $process->setWorkingDirectory($this->appRoot)->mustRun();
+
+        $this->logger->debug("Output from @command:\n\n@output\n\n@error_output", [
+          '@command' => $process->getCommandLine(),
+          '@output' => $process->getOutput(),
+          '@error_output' => $process->getErrorOutput(),
+        ]);
       }
     }
     finally {

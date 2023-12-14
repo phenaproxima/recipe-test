@@ -9,4 +9,3 @@ services:
       - { name: event_subscriber }
     calls:
       - [setLogger, ['@logger.channel.package_manager']]
-    public: false
