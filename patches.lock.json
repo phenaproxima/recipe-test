@@ -1,5 +1,5 @@
 {
-    "_hash": "dd762475badc6d722499fceb11fad95286287c26e6c00d03bfbc9e314a09c901",
+    "_hash": "e935a7786ae04dfa948d6d2d462b6b3db61a281c72187f78c780ec23941069f7",
     "patches": {
         "drupal/core": [
             {
@@ -34,7 +34,7 @@
                 "package": "kanopi/gin-admin-experience",
                 "description": "Various fixes to 0.1.5 for demo purposes",
                 "url": "./patches/gin-admin-experience-0.1.5-fixes.diff",
-                "sha256": "cbe01e4090ea6bbc0eb08fc123556c1f113c2a548c9d0cfe320564aa51692cc1",
+                "sha256": "5f0b76c685a2da8787bc0f7290c313c207f78a5253add1232d4fc91455f5e030",
                 "depth": 1,
                 "extra": []
             }

@@ -1,5 +1,5 @@
 diff --git a/recipe.yml b/recipe.yml
-index 1a90b09..17e9a79 100644
+index 1a90b09..7c9ec8b 100644
 --- a/recipe.yml
 +++ b/recipe.yml
 @@ -10,9 +10,9 @@ install:
@@ -70,3 +70,32 @@ index 1a90b09..17e9a79 100644
      # Update the admin theme to Gin in Theme settings.
      node.settings:
        simple_config_update:
+@@ -69,3 +69,28 @@ config:
+     system.theme:
+       simple_config_update:
+         admin: gin
++    gin.settings:
++      simple_config_update:
++        preset_accent_color: green
++        enable_darkmode: '1'
++    block.block.gin_search_form_wide:
++      simple_config_update:
++        status: false
++    block.block.gin_search_form_narrow:
++      simple_config_update:
++        status: false
++    block.block.gin_account_menu:
++      simple_config_update:
++        status: false
++    block.block.gin_main_menu:
++      simple_config_update:
++        status: false
++    block.block.gin_powered:
++      simple_config_update:
++        status: false
++    block.block.gin_syndicate:
++      simple_config_update:
++        status: false
++    block.block.gin_site_branding:
++      simple_config_update:
++        status: false
