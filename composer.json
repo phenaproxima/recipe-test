@@ -117,6 +117,7 @@
         }
     },
     "scripts": {
+        "clean": "@composer remove kanopi/gin-admin-experience",
         "install-drupal": [
             "chmod +w ./web/sites/default ./web/sites/default/settings.php",
             "rm ./web/sites/default/settings.php",
