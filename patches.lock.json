@@ -1,20 +1,12 @@
 {
-    "_hash": "09fe6feebef3a2e1dc010a8e37f12dd1ebe227e8cd8dc43bb2b4aa8ef4ef1376",
+    "_hash": "dfda74d3b70ce79381d363937e43186ebbeca5eb2c0014c33b374766ba55bb3b",
     "patches": {
         "drupal/core": [
             {
                 "package": "drupal/core",
                 "description": "Add recipe support",
-                "url": "./patches/recipe-11.x-d550e9ea04b586bd32dd9aa6c7c53a157981702f.patch",
-                "sha256": "20544e487f0751770fe31a25cc9db377bd34eaf6401d746b641da5faa5e262a5",
-                "depth": 2,
-                "extra": []
-            },
-            {
-                "package": "drupal/core",
-                "description": "Support checkpoints recording config storage changes",
-                "url": "./patches/distributions_recipes-59-351d5a667e9dd84959a3b47ac70b92d1b1050f21.diff",
-                "sha256": "d8af24cf2e8911c8fe2679404d46689f998646e375128a8d02b5f6dcf12e1fa2",
+                "url": "./patches/recipe-11.x-29689e15373d17037bfe3d68fbb251b178aa55d6.diff",
+                "sha256": "77f511bd460c6359b247ebf0987b7f0581e435137aa4c42df46ac099dc09c103",
                 "depth": 2,
                 "extra": []
             },
