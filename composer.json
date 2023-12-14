@@ -117,6 +117,16 @@
         }
     },
     "scripts": {
+        "install-drupal": [
+            "chmod +w ./web/sites/default ./web/sites/default/settings.php",
+            "rm ./web/sites/default/settings.php",
+            "drush site:install standard --yes --db-url sqlite://db.sqlite --account-pass admin",
+            "drush pm:enable --yes project_browser_recipe_demo",
+            "drush config:set --yes package_manager.settings executables.composer $PWD/vendor/bin/composer",
+            "drush config:set --yes package_manager.settings include_unknown_files_in_project_root true --input-format=yaml",
+            "drush config:set --yes project_browser.admin_settings allow_ui_install true --input-format=yaml",
+            "drush config:set --yes project_browser.admin_settings enabled_sources '[drupalorg_mockapi, recipe_test]' --input-format=yaml"
+        ],
         "post-create-project-cmd": [
             "phen\\Scripts::rewriteInfoFiles",
             "phen\\Scripts::rewriteRecipe",
