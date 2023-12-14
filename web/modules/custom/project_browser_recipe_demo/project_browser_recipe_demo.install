@@ -21,5 +21,6 @@ function project_browser_recipe_demo_install(): void {
   Drupal::configFactory()
     ->getEditable('package_manager.settings')
     ->set('executables.composer', $path_locator->getVendorDirectory() . '/bin/composer')
+    ->set('include_unknown_files_in_project_root', TRUE)
     ->save();
 }

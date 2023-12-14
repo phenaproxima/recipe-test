@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "dea13f3a860705e2ab0e7170d45f2017",
+    "content-hash": "60c7697c30c631de738b36437bd7f2b5",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -1814,17 +1814,11 @@
         },
         {
             "name": "drupal/automatic_updates",
-            "version": "3.0.0-beta2",
+            "version": "dev-3.0.x",
             "source": {
                 "type": "git",
                 "url": "https://git.drupalcode.org/project/automatic_updates.git",
-                "reference": "3.0.0-beta2"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://ftp.drupal.org/files/projects/automatic_updates-3.0.0-beta2.zip",
-                "reference": "3.0.0-beta2",
-                "shasum": "30326d6d85a04c1489e8af5ec8723d55e42dd7ae"
+                "reference": "eed233ca95c0ca6e7cb18555a321150d56646ccc"
             },
             "require": {
                 "composer-runtime-api": "^2.1",
@@ -1842,12 +1836,15 @@
             ],
             "type": "drupal-module",
             "extra": {
+                "branch-alias": {
+                    "dev-3.0.x": "3.0.x-dev"
+                },
                 "drupal": {
-                    "version": "3.0.0-beta2",
-                    "datestamp": "1701980742",
+                    "version": "3.0.0-beta2+2-dev",
+                    "datestamp": "1702504588",
                     "security-coverage": {
                         "status": "not-covered",
-                        "message": "Beta releases are not covered by Drupal security advisories."
+                        "message": "Dev releases are not covered by Drupal security advisories."
                     }
                 }
             },
@@ -7618,7 +7615,7 @@
     "minimum-stability": "dev",
     "stability-flags": {
         "cweagans/composer-patches": 10,
-        "drupal/automatic_updates": 10,
+        "drupal/automatic_updates": 20,
         "drupal/core-recommended": 20,
         "drupal/project_browser": 20,
         "ewcomposer/unpack": 20

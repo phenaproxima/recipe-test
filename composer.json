@@ -22,7 +22,7 @@
         "composer/composer": "^2.6",
         "composer/installers": "^2.0",
         "cweagans/composer-patches": "^2@beta",
-        "drupal/automatic_updates": "^3.0@beta",
+        "drupal/automatic_updates": "3.0.x-dev",
         "drupal/core-composer-scaffold": "10.2.0-rc1",
         "drupal/core-recommended": "11.x-dev",
         "drupal/project_browser": "1.0.x-dev",
