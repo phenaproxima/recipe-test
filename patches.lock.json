@@ -1,5 +1,5 @@
 {
-    "_hash": "4f836afb7d718c22e09f1f1fd787d030d24e428bb4aab6d16bd18743c36b95c1",
+    "_hash": "c4ee4ccdecc50caf9c7c187c076dc8942fdded65d349b81e7a7bbb27db738f09",
     "patches": {
         "drupal/core": [
             {
@@ -24,7 +24,7 @@
                 "package": "drupal/project_browser",
                 "description": "Various fixes to 1.0.x for demo purposes",
                 "url": "./patches/project_browser-1.0.x-fixes.diff",
-                "sha256": "93ff305c80417faa2187bf8fe076ee0c4eb8fe0772398f71c78a32dd3cc66ff3",
+                "sha256": "007d519506fb99e92541092e2f1ab71461f971214f001f53e76844275d0d2672",
                 "depth": 1,
                 "extra": []
             }

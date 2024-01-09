@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4fe175fdb2c5b32fb8e1a5821955b520",
+    "content-hash": "3a70f876724ac69bc323c4e565d2e784",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -2504,7 +2504,7 @@
             "source": {
                 "type": "git",
                 "url": "https://git.drupalcode.org/project/project_browser.git",
-                "reference": "3f8f81315b1641a5704ac084b18f0e4236b628c6"
+                "reference": "99863c1c8561bcc4af5e02bf1641eed2f122bcab"
             },
             "require": {
                 "composer/semver": "^3.2",
@@ -2526,8 +2526,8 @@
                     "dev-1.0.x": "1.0.x-dev"
                 },
                 "drupal": {
-                    "version": "1.0.0-beta5+9-dev",
-                    "datestamp": "1700511159",
+                    "version": "1.0.0-beta5+10-dev",
+                    "datestamp": "1703273290",
                     "security-coverage": {
                         "status": "not-covered",
                         "message": "Dev releases are not covered by Drupal security advisories."
