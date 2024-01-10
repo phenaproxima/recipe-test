@@ -1899,11 +1899,11 @@
             "source": {
                 "type": "git",
                 "url": "https://git.drupalcode.org/project/automatic_updates.git",
-                "reference": "eed233ca95c0ca6e7cb18555a321150d56646ccc"
+                "reference": "f74d4daacd5d57f7cf68ff357c01b2f636d15090"
             },
             "require": {
                 "composer-runtime-api": "^2.1",
-                "drupal/core": "^10",
+                "drupal/core": "^10.1",
                 "ext-json": "*",
                 "php-tuf/composer-stager": "^2.0.0-beta3",
                 "symfony/console": "^6.2"
@@ -1921,8 +1921,8 @@
                     "dev-3.0.x": "3.0.x-dev"
                 },
                 "drupal": {
-                    "version": "3.0.0-beta2+2-dev",
-                    "datestamp": "1702504588",
+                    "version": "3.0.0+6-dev",
+                    "datestamp": "1704894468",
                     "security-coverage": {
                         "status": "not-covered",
                         "message": "Dev releases are not covered by Drupal security advisories."
@@ -1947,10 +1947,10 @@
                     "scripts/phpunit.sh"
                 ],
                 "core-convert": [
-                    "Drupal\\automatic_updates\\Development\\Converter::doConvert"
+                    "Drupal\\automatic_updates\\Development\\ConverterCommand"
                 ],
                 "core-commit": [
-                    "Drupal\\automatic_updates\\Development\\Converter::makeCommit"
+                    "Drupal\\automatic_updates\\Development\\ConverterCommand::makeCommit"
                 ]
             },
             "license": [
