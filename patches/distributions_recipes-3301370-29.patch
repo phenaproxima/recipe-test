@@ -1,0 +1,3634 @@
+diff --git a/core/lib/Drupal/Core/Recipe/ConfigConfigurator.php b/core/lib/Drupal/Core/Recipe/ConfigConfigurator.php
+index a8f3f02552..91fc33a18c 100644
+--- a/core/lib/Drupal/Core/Recipe/ConfigConfigurator.php
++++ b/core/lib/Drupal/Core/Recipe/ConfigConfigurator.php
+@@ -30,11 +30,22 @@ public function __construct(public readonly array $config, string $recipe_direct
+       if ($active_data = $active_configuration->read($config_name)) {
+         // @todo investigate if there is any generic code in core for this.
+         unset($active_data['uuid'], $active_data['_core']);
+-        if (empty($active_data['dependencies'])) {
+-          unset($active_data['dependencies']);
+-        }
+-        if ($active_data !== $recipe_storage->read($config_name)) {
+-          throw new RecipePreExistingConfigException($config_name, sprintf("The configuration '%s' exists already and does not match the recipe's configuration", $config_name));
++        if ($active_data !== ($recipe_config = $recipe_storage->read($config_name))) {
++          // Remove keys with empty values.
++          foreach ($active_data as $key => $value) {
++            if (empty($value)) {
++              unset($active_data[$key]);
++            }
++          }
++          // Remove keys with empty values.
++          foreach ($recipe_config as $key => $value) {
++            if (empty($value)) {
++              unset($recipe_config[$key]);
++            }
++          }
++          if ($active_data != $recipe_config) {
++            throw new RecipePreExistingConfigException($config_name, sprintf("The configuration '%s' exists already and does not match the recipe's configuration", $config_name));
++          }
+         }
+       }
+     }
+diff --git a/core/profiles/empty/empty.info.yml b/core/profiles/empty/empty.info.yml
+new file mode 100644
+index 0000000000..2f04c13851
+--- /dev/null
++++ b/core/profiles/empty/empty.info.yml
+@@ -0,0 +1,6 @@
++name: Empty
++type: profile
++description: 'More minimal than minimal. Suitable for starting with recipes.'
++version: VERSION
++themes:
++  - stark
+diff --git a/core/profiles/empty/tests/src/Functional/EmptyTest.php b/core/profiles/empty/tests/src/Functional/EmptyTest.php
+new file mode 100644
+index 0000000000..cfac7c6689
+--- /dev/null
++++ b/core/profiles/empty/tests/src/Functional/EmptyTest.php
+@@ -0,0 +1,73 @@
++<?php
++
++namespace Drupal\Tests\empty\Functional;
++
++use Drupal\Tests\BrowserTestBase;
++use Drupal\Tests\RequirementsPageTrait;
++use Drupal\Tests\SchemaCheckTestTrait;
++use Drupal\user\UserInterface;
++
++/**
++ * Tests Empty installation profile expectations.
++ *
++ * @group empty
++ */
++class EmptyTest extends BrowserTestBase {
++
++  use SchemaCheckTestTrait;
++  use RequirementsPageTrait;
++
++  protected $profile = 'empty';
++
++  /**
++   * {@inheritdoc}
++   */
++  protected $defaultTheme = 'stark';
++
++  /**
++   * Tests Empty installation profile.
++   */
++  public function testEmpty() {
++    $this->drupalGet('');
++    // Check the login block is present.
++    $this->assertSession()->linkExists('Create new account');
++    $this->assertSession()->statusCodeEquals(200);
++
++    // Create a user to test tools and navigation blocks for logged in users
++    // with appropriate permissions.
++    $user = $this->drupalCreateUser([
++      'access administration pages',
++      'administer content types',
++    ]);
++    $this->drupalLogin($user);
++    $this->drupalGet('');
++    $this->assertSession()->pageTextContains('Tools');
++    $this->assertSession()->pageTextContains('Administration');
++
++    // Ensure that there are no pending updates after installation.
++    $this->drupalLogin($this->rootUser);
++    $this->drupalGet('update.php/selection');
++    $this->updateRequirementsProblem();
++    $this->drupalGet('update.php/selection');
++    $this->assertSession()->pageTextContains('No pending updates.');
++
++    // Ensure that there are no pending entity updates after installation.
++    $this->assertFalse($this->container->get('entity.definition_update_manager')->needsUpdates(), 'After installation, entity schema is up to date.');
++
++    // Ensure special configuration overrides are correct.
++    $this->assertFalse($this->config('system.theme.global')->get('features.node_user_picture'), 'Configuration system.theme.global:features.node_user_picture is FALSE.');
++    $this->assertEquals(UserInterface::REGISTER_VISITORS_ADMINISTRATIVE_APPROVAL, $this->config('user.settings')->get('register'));
++
++    // Now we have all configuration imported, test all of them for schema
++    // conformance. Ensures all imported default configuration is valid when
++    // Empty profile modules are enabled.
++    $names = $this->container->get('config.storage')->listAll();
++    /** @var \Drupal\Core\Config\TypedConfigManagerInterface $typed_config */
++    $typed_config = $this->container->get('config.typed');
++    foreach ($names as $name) {
++      $config = $this->config($name);
++      $this->assertConfigSchema($typed_config, $name, $config->get());
++    }
++  }
++
++}
+diff --git a/core/recipes/administrator_role/config/user.role.administrator.yml b/core/recipes/administrator_role/config/user.role.administrator.yml
+new file mode 100644
+index 0000000000..ca48a58b4e
+--- /dev/null
++++ b/core/recipes/administrator_role/config/user.role.administrator.yml
+@@ -0,0 +1,8 @@
++langcode: en
++status: true
++dependencies: {  }
++id: administrator
++label: Administrator
++weight: 3
++is_admin: true
++permissions: {  }
+diff --git a/core/recipes/administrator_role/recipe.yml b/core/recipes/administrator_role/recipe.yml
+new file mode 100644
+index 0000000000..fa90119fcc
+--- /dev/null
++++ b/core/recipes/administrator_role/recipe.yml
+@@ -0,0 +1,3 @@
++name: 'Administrator role'
++description: 'Provides an "Administrator" user role.'
++type: 'User role'
+diff --git a/core/recipes/article_comment/config/field.field.node.article.comment.yml b/core/recipes/article_comment/config/field.field.node.article.comment.yml
+new file mode 100644
+index 0000000000..cf3b12af98
+--- /dev/null
++++ b/core/recipes/article_comment/config/field.field.node.article.comment.yml
+@@ -0,0 +1,32 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.node.comment
++    - node.type.article
++  module:
++    - comment
++id: node.article.comment
++field_name: comment
++entity_type: node
++bundle: article
++label: Comments
++description: ''
++required: false
++translatable: true
++default_value:
++  -
++    status: 2
++    cid: 0
++    last_comment_timestamp: 0
++    last_comment_name: null
++    last_comment_uid: 0
++    comment_count: 0
++default_value_callback: ''
++settings:
++  default_mode: 1
++  per_page: 50
++  anonymous: 0
++  form_location: true
++  preview: 1
++field_type: comment
+diff --git a/core/recipes/article_comment/recipe.yml b/core/recipes/article_comment/recipe.yml
+new file mode 100644
+index 0000000000..f75f9012cb
+--- /dev/null
++++ b/core/recipes/article_comment/recipe.yml
+@@ -0,0 +1,32 @@
++name: 'Article comments'
++description: 'Provides commenting on article content.'
++type: 'Content field'
++recipes:
++  - article_content_type
++  - comment_comment_type
++#config:
++#  actions:
++#    core.entity_view_display.node.article.default:
++#      setComponent:
++#        comment:
++#        -
++#          type: comment_default
++#          label: above
++#          settings:
++#            view_mode: default
++#            pager_id: 0
++#          third_party_settings: {  }
++#          weight: 110
++#          region: content
++#    core.entity_view_display.node.article.teaser:
++#      removeComponent:
++#        comment
++#    core.entity_form_display.node.article.default:
++#      setComponent:
++#        comment:
++#        -
++#          type: comment_default
++#          weight: 20
++#          region: content
++#          settings: {  }
++#          third_party_settings: {  }
+diff --git a/core/recipes/article_content_type/composer.json b/core/recipes/article_content_type/composer.json
+new file mode 100644
+index 0000000000..489b5bdd11
+--- /dev/null
++++ b/core/recipes/article_content_type/composer.json
+@@ -0,0 +1,14 @@
++{
++    "name": "drupal_recipe/article_content_type ",
++    "description": "A recipe for an article content type",
++    "type": "drupal-recipe",
++    "require": {
++      "drupal/core": "^10"
++    },
++    "suggest": {
++      "drupal-recipe/article_comment": "Provides commenting on article content.",
++      "drupal-recipe/article_tags": "Provides tags on article content."
++    },
++    "license": "GPL-2.0-or-later"
++  }
++  
+\ No newline at end of file
+diff --git a/core/recipes/article_content_type/config/core.entity_form_display.node.article.default.yml b/core/recipes/article_content_type/config/core.entity_form_display.node.article.default.yml
+new file mode 100644
+index 0000000000..925d61e1ae
+--- /dev/null
++++ b/core/recipes/article_content_type/config/core.entity_form_display.node.article.default.yml
+@@ -0,0 +1,87 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.node.article.body
++    - field.field.node.article.field_image
++    - image.style.thumbnail
++    - node.type.article
++  module:
++    - image
++    - path
++    - text
++id: node.article.default
++targetEntityType: node
++bundle: article
++mode: default
++content:
++  body:
++    type: text_textarea_with_summary
++    weight: 1
++    region: content
++    settings:
++      rows: 9
++      summary_rows: 3
++      placeholder: ''
++      show_summary: false
++    third_party_settings: {  }
++  created:
++    type: datetime_timestamp
++    weight: 10
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  field_image:
++    type: image_image
++    weight: 4
++    region: content
++    settings:
++      progress_indicator: throbber
++      preview_image_style: thumbnail
++    third_party_settings: {  }
++  path:
++    type: path
++    weight: 30
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  promote:
++    type: boolean_checkbox
++    weight: 15
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  status:
++    type: boolean_checkbox
++    weight: 120
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  sticky:
++    type: boolean_checkbox
++    weight: 16
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  title:
++    type: string_textfield
++    weight: 0
++    region: content
++    settings:
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++  uid:
++    type: entity_reference_autocomplete
++    weight: 5
++    region: content
++    settings:
++      match_operator: CONTAINS
++      match_limit: 10
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden: {  }
+diff --git a/core/recipes/article_content_type/config/core.entity_view_display.node.article.default.yml b/core/recipes/article_content_type/config/core.entity_view_display.node.article.default.yml
+new file mode 100644
+index 0000000000..2d18967510
+--- /dev/null
++++ b/core/recipes/article_content_type/config/core.entity_view_display.node.article.default.yml
+@@ -0,0 +1,41 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.node.article.body
++    - field.field.node.article.field_image
++    - image.style.wide
++    - node.type.article
++  module:
++    - image
++    - text
++    - user
++id: node.article.default
++targetEntityType: node
++bundle: article
++mode: default
++content:
++  body:
++    type: text_default
++    label: hidden
++    settings: {  }
++    third_party_settings: {  }
++    weight: 0
++    region: content
++  field_image:
++    type: image
++    label: hidden
++    settings:
++      image_style: wide
++      image_link: ''
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: -1
++    region: content
++  links:
++    settings: {  }
++    third_party_settings: {  }
++    weight: 100
++    region: content
++hidden: {  }
+diff --git a/core/recipes/article_content_type/config/core.entity_view_display.node.article.rss.yml b/core/recipes/article_content_type/config/core.entity_view_display.node.article.rss.yml
+new file mode 100644
+index 0000000000..05896dd3d7
+--- /dev/null
++++ b/core/recipes/article_content_type/config/core.entity_view_display.node.article.rss.yml
+@@ -0,0 +1,21 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.node.rss
++    - field.field.node.article.body
++    - field.field.node.article.field_image
++    - node.type.article
++  module:
++    - user
++id: node.article.rss
++targetEntityType: node
++bundle: article
++mode: rss
++content:
++  links:
++    weight: 100
++    region: content
++hidden:
++  body: true
++  field_image: true
+diff --git a/core/recipes/article_content_type/config/core.entity_view_display.node.article.teaser.yml b/core/recipes/article_content_type/config/core.entity_view_display.node.article.teaser.yml
+new file mode 100644
+index 0000000000..407fe2161a
+--- /dev/null
++++ b/core/recipes/article_content_type/config/core.entity_view_display.node.article.teaser.yml
+@@ -0,0 +1,42 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.node.teaser
++    - field.field.node.article.body
++    - field.field.node.article.field_image
++    - image.style.medium
++    - node.type.article
++  module:
++    - image
++    - text
++    - user
++id: node.article.teaser
++targetEntityType: node
++bundle: article
++mode: teaser
++content:
++  body:
++    type: text_summary_or_trimmed
++    label: hidden
++    settings:
++      trim_length: 600
++    third_party_settings: {  }
++    weight: 0
++    region: content
++  field_image:
++    type: image
++    label: hidden
++    settings:
++      image_style: medium
++      image_link: content
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: -1
++    region: content
++  links:
++    weight: 100
++    region: content
++hidden:
++  field_image: true
+diff --git a/core/recipes/article_content_type/config/field.field.node.article.body.yml b/core/recipes/article_content_type/config/field.field.node.article.body.yml
+new file mode 100644
+index 0000000000..b36fbd5844
+--- /dev/null
++++ b/core/recipes/article_content_type/config/field.field.node.article.body.yml
+@@ -0,0 +1,22 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.node.body
++    - node.type.article
++  module:
++    - text
++id: node.article.body
++field_name: body
++entity_type: node
++bundle: article
++label: Body
++description: ''
++required: false
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  display_summary: true
++  required_summary: false
++field_type: text_with_summary
+diff --git a/core/recipes/article_content_type/config/field.field.node.article.field_image.yml b/core/recipes/article_content_type/config/field.field.node.article.field_image.yml
+new file mode 100644
+index 0000000000..ab7b9940a7
+--- /dev/null
++++ b/core/recipes/article_content_type/config/field.field.node.article.field_image.yml
+@@ -0,0 +1,37 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.node.field_image
++    - node.type.article
++  module:
++    - image
++id: node.article.field_image
++field_name: field_image
++entity_type: node
++bundle: article
++label: Image
++description: ''
++required: false
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  handler: 'default:file'
++  handler_settings: {  }
++  file_directory: '[date:custom:Y]-[date:custom:m]'
++  file_extensions: 'png gif jpg jpeg'
++  max_filesize: ''
++  max_resolution: ''
++  min_resolution: ''
++  alt_field: true
++  alt_field_required: true
++  title_field: false
++  title_field_required: false
++  default_image:
++    uuid: null
++    alt: ''
++    title: ''
++    width: null
++    height: null
++field_type: image
+diff --git a/core/recipes/article_content_type/config/field.storage.node.field_image.yml b/core/recipes/article_content_type/config/field.storage.node.field_image.yml
+new file mode 100644
+index 0000000000..a6964d3b0a
+--- /dev/null
++++ b/core/recipes/article_content_type/config/field.storage.node.field_image.yml
+@@ -0,0 +1,31 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - file
++    - image
++    - node
++id: node.field_image
++field_name: field_image
++entity_type: node
++type: image
++settings:
++  target_type: file
++  display_field: false
++  display_default: false
++  uri_scheme: public
++  default_image:
++    uuid: null
++    alt: ''
++    title: ''
++    width: null
++    height: null
++module: image
++locked: false
++cardinality: 1
++translatable: true
++indexes:
++  target_id:
++    - target_id
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/article_content_type/config/node.type.article.yml b/core/recipes/article_content_type/config/node.type.article.yml
+new file mode 100644
+index 0000000000..1fd439ce71
+--- /dev/null
++++ b/core/recipes/article_content_type/config/node.type.article.yml
+@@ -0,0 +1,10 @@
++langcode: en
++status: true
++dependencies: {  }
++name: Article
++type: article
++description: 'Use <em>articles</em> for time-sensitive content like news, press releases or blog posts.'
++help: ''
++new_revision: true
++preview_mode: 1
++display_submitted: true
+diff --git a/core/recipes/article_content_type/recipe.yml b/core/recipes/article_content_type/recipe.yml
+new file mode 100644
+index 0000000000..e3cb9f2741
+--- /dev/null
++++ b/core/recipes/article_content_type/recipe.yml
+@@ -0,0 +1,30 @@
++name: Article
++description: 'Provides Article content type and related configuration. Use <em>articles</em> for time-sensitive content like news, press releases or blog posts.'
++type: 'Content type'
++recipes:
++  - content_editor_role
++install:
++  - field
++  - file
++  - image
++  - node
++  - path
++  - text
++  - user
++config:
++  import:
++    node:
++      - core.entity_view_mode.node.rss
++      - core.entity_view_mode.node.teaser
++      - field.storage.node.body
++    image:
++      - image.style.medium
++      - image.style.thumbnail
++      - image.style.wide
++  actions:
++    user.role.content_editor:
++      grantPermissions:
++        - 'create article content'
++        - 'delete article revisions'
++        - 'delete own article content'
++        - 'edit own article content'
+diff --git a/core/recipes/article_tags/config/field.field.node.article.field_tags.yml b/core/recipes/article_tags/config/field.field.node.article.field_tags.yml
+new file mode 100644
+index 0000000000..1b9c4cc4ee
+--- /dev/null
++++ b/core/recipes/article_tags/config/field.field.node.article.field_tags.yml
+@@ -0,0 +1,26 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.node.field_tags
++    - node.type.article
++    - taxonomy.vocabulary.tags
++id: node.article.field_tags
++field_name: field_tags
++entity_type: node
++bundle: article
++label: Tags
++description: 'Enter a comma-separated list. For example: Amsterdam, Mexico City, "Cleveland, Ohio"'
++required: false
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  handler: 'default:taxonomy_term'
++  handler_settings:
++    target_bundles:
++      tags: tags
++    sort:
++      field: _none
++    auto_create: true
++field_type: entity_reference
+diff --git a/core/recipes/article_tags/recipe.yml b/core/recipes/article_tags/recipe.yml
+new file mode 100644
+index 0000000000..55f43204d5
+--- /dev/null
++++ b/core/recipes/article_tags/recipe.yml
+@@ -0,0 +1,45 @@
++name: 'Article tags'
++description: 'Provides tags on article content.'
++type: 'Content field'
++recipes:
++  - article_content_type
++  - tags_taxonomy
++config:
++  actions:
++    core.entity_form_display.node.article.default:
++      setComponent:
++        name: field_tags
++        options:
++          type: entity_reference_autocomplete_tags
++          weight: 3
++          region: content
++          settings:
++            match_operator: CONTAINS
++            match_limit: 10
++            size: 60
++            placeholder: ''
++          third_party_settings: {  }
++    core.entity_view_display.node.article.teaser:
++      setComponent:
++        name: field_tags
++        options:
++          type: entity_reference_label
++          label: above
++          settings:
++            link: true
++          third_party_settings: {  }
++          weight: 10
++          region: content
++      # removeComponent:
++      #   field_tags
++    core.entity_view_display.node.article.default:
++      setComponent:
++        name: field_tags
++        options:
++          type: entity_reference_label
++          label: above
++          settings:
++            link: true
++          third_party_settings: {  }
++          weight: 10
++          region: content
+diff --git a/core/recipes/audio_media/config/core.entity_form_display.media.audio.default.yml b/core/recipes/audio_media/config/core.entity_form_display.media.audio.default.yml
+new file mode 100644
+index 0000000000..55854bcb88
+--- /dev/null
++++ b/core/recipes/audio_media/config/core.entity_form_display.media.audio.default.yml
+@@ -0,0 +1,52 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.audio.field_media_audio_file
++    - media.type.audio
++  module:
++    - file
++    - path
++id: media.audio.default
++targetEntityType: media
++bundle: audio
++mode: default
++content:
++  created:
++    type: datetime_timestamp
++    weight: 10
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  field_media_audio_file:
++    type: file_generic
++    weight: 0
++    region: content
++    settings:
++      progress_indicator: throbber
++    third_party_settings: {  }
++  path:
++    type: path
++    weight: 30
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  status:
++    type: boolean_checkbox
++    weight: 100
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  uid:
++    type: entity_reference_autocomplete
++    weight: 5
++    region: content
++    settings:
++      match_operator: CONTAINS
++      match_limit: 10
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden:
++  name: true
+diff --git a/core/recipes/audio_media/config/core.entity_form_display.media.audio.media_library.yml b/core/recipes/audio_media/config/core.entity_form_display.media.audio.media_library.yml
+new file mode 100644
+index 0000000000..9179618e64
+--- /dev/null
++++ b/core/recipes/audio_media/config/core.entity_form_display.media.audio.media_library.yml
+@@ -0,0 +1,19 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_form_mode.media.media_library
++    - field.field.media.audio.field_media_audio_file
++    - media.type.audio
++id: media.audio.media_library
++targetEntityType: media
++bundle: audio
++mode: media_library
++content: {  }
++hidden:
++  created: true
++  field_media_audio_file: true
++  name: true
++  path: true
++  status: true
++  uid: true
+diff --git a/core/recipes/audio_media/config/core.entity_view_display.media.audio.default.yml b/core/recipes/audio_media/config/core.entity_view_display.media.audio.default.yml
+new file mode 100644
+index 0000000000..2956f69131
+--- /dev/null
++++ b/core/recipes/audio_media/config/core.entity_view_display.media.audio.default.yml
+@@ -0,0 +1,29 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.audio.field_media_audio_file
++    - media.type.audio
++  module:
++    - file
++id: media.audio.default
++targetEntityType: media
++bundle: audio
++mode: default
++content:
++  field_media_audio_file:
++    type: file_audio
++    label: visually_hidden
++    settings:
++      controls: true
++      autoplay: false
++      loop: false
++      multiple_file_display_type: tags
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  name: true
++  thumbnail: true
++  uid: true
+diff --git a/core/recipes/audio_media/config/core.entity_view_display.media.audio.media_library.yml b/core/recipes/audio_media/config/core.entity_view_display.media.audio.media_library.yml
+new file mode 100644
+index 0000000000..85dac7b2db
+--- /dev/null
++++ b/core/recipes/audio_media/config/core.entity_view_display.media.audio.media_library.yml
+@@ -0,0 +1,31 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.media.media_library
++    - field.field.media.audio.field_media_audio_file
++    - image.style.thumbnail
++    - media.type.audio
++  module:
++    - image
++id: media.audio.media_library
++targetEntityType: media
++bundle: audio
++mode: media_library
++content:
++  thumbnail:
++    type: image
++    label: hidden
++    settings:
++      image_style: thumbnail
++      image_link: ''
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  field_media_audio_file: true
++  name: true
++  uid: true
+diff --git a/core/recipes/audio_media/config/field.field.media.audio.field_media_audio_file.yml b/core/recipes/audio_media/config/field.field.media.audio.field_media_audio_file.yml
+new file mode 100644
+index 0000000000..a4bb52eb85
+--- /dev/null
++++ b/core/recipes/audio_media/config/field.field.media.audio.field_media_audio_file.yml
+@@ -0,0 +1,26 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.media.field_media_audio_file
++    - media.type.audio
++  module:
++    - file
++id: media.audio.field_media_audio_file
++field_name: field_media_audio_file
++entity_type: media
++bundle: audio
++label: 'Audio file'
++description: ''
++required: true
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  handler: 'default:file'
++  handler_settings: {  }
++  file_directory: '[date:custom:Y]-[date:custom:m]'
++  file_extensions: 'mp3 wav aac'
++  max_filesize: ''
++  description_field: false
++field_type: file
+diff --git a/core/recipes/audio_media/config/field.storage.media.field_media_audio_file.yml b/core/recipes/audio_media/config/field.storage.media.field_media_audio_file.yml
+new file mode 100644
+index 0000000000..1626b607ea
+--- /dev/null
++++ b/core/recipes/audio_media/config/field.storage.media.field_media_audio_file.yml
+@@ -0,0 +1,22 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - file
++    - media
++id: media.field_media_audio_file
++field_name: field_media_audio_file
++entity_type: media
++type: file
++settings:
++  target_type: file
++  display_field: false
++  display_default: false
++  uri_scheme: public
++module: file
++locked: false
++cardinality: 1
++translatable: true
++indexes: {  }
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/audio_media/config/media.type.audio.yml b/core/recipes/audio_media/config/media.type.audio.yml
+new file mode 100644
+index 0000000000..233b2042dc
+--- /dev/null
++++ b/core/recipes/audio_media/config/media.type.audio.yml
+@@ -0,0 +1,13 @@
++langcode: en
++status: true
++dependencies: {  }
++id: audio
++label: Audio
++description: 'A locally hosted audio file.'
++source: audio_file
++queue_thumbnail_downloads: false
++new_revision: true
++source_configuration:
++  source_field: field_media_audio_file
++field_map:
++  name: name
+diff --git a/core/recipes/audio_media/recipe.yml b/core/recipes/audio_media/recipe.yml
+new file mode 100644
+index 0000000000..49eaff2f21
+--- /dev/null
++++ b/core/recipes/audio_media/recipe.yml
+@@ -0,0 +1,18 @@
++name: 'Audio media'
++description: 'Provides "Audio" media type and related configuration. A locally hosted audio file.'
++type: 'Media type'
++install:
++  - field
++  - file
++  - image
++  - media
++  - media_library
++  - path
++config:
++  import:
++    media_library:
++      - core.entity_view_display.media.audio.media_library
++      - core.entity_view_mode.media.media_library
++      - core.entity_form_mode.media.media_library
++    image:
++      - image.style.thumbnail
+diff --git a/core/recipes/basic_block_type/config/block_content.type.basic.yml b/core/recipes/basic_block_type/config/block_content.type.basic.yml
+new file mode 100644
+index 0000000000..f01ced96bc
+--- /dev/null
++++ b/core/recipes/basic_block_type/config/block_content.type.basic.yml
+@@ -0,0 +1,7 @@
++langcode: en
++status: true
++dependencies: {  }
++id: basic
++label: 'Basic block'
++revision: 0
++description: 'A basic block contains a title and a body.'
+diff --git a/core/recipes/basic_block_type/config/core.entity_form_display.block_content.basic.default.yml b/core/recipes/basic_block_type/config/core.entity_form_display.block_content.basic.default.yml
+new file mode 100644
+index 0000000000..fe49840e80
+--- /dev/null
++++ b/core/recipes/basic_block_type/config/core.entity_form_display.block_content.basic.default.yml
+@@ -0,0 +1,32 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - block_content.type.basic
++    - field.field.block_content.basic.body
++  module:
++    - text
++id: block_content.basic.default
++targetEntityType: block_content
++bundle: basic
++mode: default
++content:
++  body:
++    type: text_textarea_with_summary
++    weight: -4
++    region: content
++    settings:
++      rows: 9
++      summary_rows: 3
++      placeholder: ''
++      show_summary: false
++    third_party_settings: {  }
++  info:
++    type: string_textfield
++    weight: -5
++    region: content
++    settings:
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden: {  }
+diff --git a/core/recipes/basic_block_type/config/core.entity_view_display.block_content.basic.default.yml b/core/recipes/basic_block_type/config/core.entity_view_display.block_content.basic.default.yml
+new file mode 100644
+index 0000000000..f4bb96567d
+--- /dev/null
++++ b/core/recipes/basic_block_type/config/core.entity_view_display.block_content.basic.default.yml
+@@ -0,0 +1,21 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - block_content.type.basic
++    - field.field.block_content.basic.body
++  module:
++    - text
++id: block_content.basic.default
++targetEntityType: block_content
++bundle: basic
++mode: default
++content:
++  body:
++    type: text_default
++    label: hidden
++    settings: {  }
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden: {  }
+diff --git a/core/recipes/basic_block_type/config/field.field.block_content.basic.body.yml b/core/recipes/basic_block_type/config/field.field.block_content.basic.body.yml
+new file mode 100644
+index 0000000000..dab4f98181
+--- /dev/null
++++ b/core/recipes/basic_block_type/config/field.field.block_content.basic.body.yml
+@@ -0,0 +1,22 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - block_content.type.basic
++    - field.storage.block_content.body
++  module:
++    - text
++id: block_content.basic.body
++field_name: body
++entity_type: block_content
++bundle: basic
++label: Body
++description: ''
++required: false
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  display_summary: false
++  required_summary: false
++field_type: text_with_summary
+diff --git a/core/recipes/basic_block_type/recipe.yml b/core/recipes/basic_block_type/recipe.yml
+new file mode 100644
+index 0000000000..8ff5b496e9
+--- /dev/null
++++ b/core/recipes/basic_block_type/recipe.yml
+@@ -0,0 +1,13 @@
++name: 'Basic block'
++description: 'Provides "Basic block" custom block type and related configuration. A basic block contains a title and a body.'
++type: 'Block type'
++install:
++  - block_content
++  - editor
++  - field
++  - filter
++  - text
++config:
++  import:
++    block_content:
++      - field.storage.block_content.body
+diff --git a/core/recipes/basic_html_editor/config/editor.editor.basic_html.yml b/core/recipes/basic_html_editor/config/editor.editor.basic_html.yml
+new file mode 100644
+index 0000000000..07b13d8e16
+--- /dev/null
++++ b/core/recipes/basic_html_editor/config/editor.editor.basic_html.yml
+@@ -0,0 +1,65 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - filter.format.basic_html
++  module:
++    - ckeditor5
++format: basic_html
++editor: ckeditor5
++settings:
++  toolbar:
++    items:
++      - bold
++      - italic
++      - '|'
++      - link
++      - '|'
++      - bulletedList
++      - numberedList
++      - '|'
++      - blockQuote
++      - drupalInsertImage
++      - '|'
++      - heading
++      - code
++      - '|'
++      - sourceEditing
++  plugins:
++    ckeditor5_heading:
++      enabled_headings:
++        - heading2
++        - heading3
++        - heading4
++        - heading5
++        - heading6
++    ckeditor5_imageResize:
++      allow_resize: true
++    ckeditor5_list:
++      properties:
++        reversed: false
++        startIndex: true
++      multiBlock: true
++    ckeditor5_sourceEditing:
++      allowed_tags:
++        - '<cite>'
++        - '<dl>'
++        - '<dt>'
++        - '<dd>'
++        - '<a hreflang>'
++        - '<blockquote cite>'
++        - '<ul type>'
++        - '<ol type>'
++        - '<h2 id>'
++        - '<h3 id>'
++        - '<h4 id>'
++        - '<h5 id>'
++        - '<h6 id>'
++image_upload:
++  status: true
++  scheme: public
++  directory: inline-images
++  max_size: ''
++  max_dimensions:
++    width: 0
++    height: 0
+diff --git a/core/recipes/basic_html_editor/recipe.yml b/core/recipes/basic_html_editor/recipe.yml
+new file mode 100644
+index 0000000000..a2661f0ab0
+--- /dev/null
++++ b/core/recipes/basic_html_editor/recipe.yml
+@@ -0,0 +1,22 @@
++name: 'Basic HTML editor'
++description: 'Provides "Basic HTML" text editor and related configuration.'
++type: 'Editor'
++install:
++  - editor
++  - ckeditor5
++recipes:
++  - basic_html_format
++config:
++  install:
++    ckeditor5: '*'
++    editor: '*'
++#  actions:
++#    filter.format.full_html:
++#      setFilterConfig:
++#        editor_file_reference:
++#        -
++#          id: editor_file_reference
++#          provider: editor
++#          status: true
++#          weight: 11
++#          settings: {  }
+diff --git a/core/recipes/basic_html_format/config/filter.format.basic_html.yml b/core/recipes/basic_html_format/config/filter.format.basic_html.yml
+new file mode 100644
+index 0000000000..179db04f50
+--- /dev/null
++++ b/core/recipes/basic_html_format/config/filter.format.basic_html.yml
+@@ -0,0 +1,33 @@
++langcode: en
++status: true
++dependencies: {  }
++name: 'Basic HTML'
++format: basic_html
++weight: 0
++filters:
++  filter_html:
++    id: filter_html
++    provider: filter
++    status: true
++    weight: -10
++    settings:
++      allowed_html: '<a href hreflang> <em> <strong> <cite> <blockquote cite> <code> <ul type> <ol start type> <li> <dl> <dt> <dd> <h2 id> <h3 id> <h4 id> <h5 id> <h6 id> <p> <br> <span> <img src alt height width data-entity-type data-entity-uuid data-align data-caption>'
++      filter_html_help: false
++      filter_html_nofollow: false
++  filter_align:
++    id: filter_align
++    provider: filter
++    status: true
++    weight: 7
++    settings: {  }
++  filter_caption:
++    id: filter_caption
++    provider: filter
++    status: true
++    weight: 8
++    settings: {  }
++  filter_html_image_secure:
++    id: filter_html_image_secure
++    provider: filter
++    status: true
++    weight: 9
+diff --git a/core/recipes/basic_html_format/recipe.yml b/core/recipes/basic_html_format/recipe.yml
+new file mode 100644
+index 0000000000..9b20b8266d
+--- /dev/null
++++ b/core/recipes/basic_html_format/recipe.yml
+@@ -0,0 +1,5 @@
++name: 'Basic HTML text format'
++description: 'Provides "Basic HTML" text format.'
++type: 'Text format'
++install:
++  - filter
+diff --git a/core/recipes/comment_comment_type/config/comment.type.comment.yml b/core/recipes/comment_comment_type/config/comment.type.comment.yml
+new file mode 100644
+index 0000000000..ddcbbc9860
+--- /dev/null
++++ b/core/recipes/comment_comment_type/config/comment.type.comment.yml
+@@ -0,0 +1,7 @@
++langcode: en
++status: true
++dependencies: {  }
++id: comment
++label: 'Default comments'
++target_entity_type_id: node
++description: 'Allows commenting on content'
+diff --git a/core/recipes/comment_comment_type/config/core.entity_form_display.comment.comment.default.yml b/core/recipes/comment_comment_type/config/core.entity_form_display.comment.comment.default.yml
+new file mode 100644
+index 0000000000..1010be2924
+--- /dev/null
++++ b/core/recipes/comment_comment_type/config/core.entity_form_display.comment.comment.default.yml
+@@ -0,0 +1,33 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - comment.type.comment
++    - field.field.comment.comment.comment_body
++  module:
++    - text
++id: comment.comment.default
++targetEntityType: comment
++bundle: comment
++mode: default
++content:
++  author:
++    weight: -2
++    region: content
++  comment_body:
++    type: text_textarea
++    weight: 11
++    region: content
++    settings:
++      rows: 5
++      placeholder: ''
++    third_party_settings: {  }
++  subject:
++    type: string_textfield
++    weight: 10
++    region: content
++    settings:
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden: {  }
+diff --git a/core/recipes/comment_comment_type/config/core.entity_view_display.comment.comment.default.yml b/core/recipes/comment_comment_type/config/core.entity_view_display.comment.comment.default.yml
+new file mode 100644
+index 0000000000..b9fdd2bac7
+--- /dev/null
++++ b/core/recipes/comment_comment_type/config/core.entity_view_display.comment.comment.default.yml
+@@ -0,0 +1,24 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - comment.type.comment
++    - field.field.comment.comment.comment_body
++  module:
++    - text
++id: comment.comment.default
++targetEntityType: comment
++bundle: comment
++mode: default
++content:
++  comment_body:
++    type: text_default
++    label: hidden
++    settings: {  }
++    third_party_settings: {  }
++    weight: 0
++    region: content
++  links:
++    weight: 100
++    region: content
++hidden: {  }
+diff --git a/core/recipes/comment_comment_type/config/field.field.comment.comment.comment_body.yml b/core/recipes/comment_comment_type/config/field.field.comment.comment.comment_body.yml
+new file mode 100644
+index 0000000000..1337070d16
+--- /dev/null
++++ b/core/recipes/comment_comment_type/config/field.field.comment.comment.comment_body.yml
+@@ -0,0 +1,20 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - comment.type.comment
++    - field.storage.comment.comment_body
++  module:
++    - text
++id: comment.comment.comment_body
++field_name: comment_body
++entity_type: comment
++bundle: comment
++label: Comment
++description: ''
++required: true
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings: {  }
++field_type: text_long
+diff --git a/core/recipes/comment_comment_type/config/field.storage.node.comment.yml b/core/recipes/comment_comment_type/config/field.storage.node.comment.yml
+new file mode 100644
+index 0000000000..c5eee2c284
+--- /dev/null
++++ b/core/recipes/comment_comment_type/config/field.storage.node.comment.yml
+@@ -0,0 +1,19 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - comment
++    - node
++id: node.comment
++field_name: comment
++entity_type: node
++type: comment
++settings:
++  comment_type: comment
++module: comment
++locked: false
++cardinality: 1
++translatable: true
++indexes: {  }
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/comment_comment_type/recipe.yml b/core/recipes/comment_comment_type/recipe.yml
+new file mode 100644
+index 0000000000..a53f318a99
+--- /dev/null
++++ b/core/recipes/comment_comment_type/recipe.yml
+@@ -0,0 +1,12 @@
++name: 'Default comments'
++description: 'Provides "Default comments" comment type and related configuration. Allows commenting on content'
++type: 'Comment type'
++install:
++  - comment
++  - field
++  - node
++  - text
++config:
++  import:
++    comment:
++      - field.storage.comment.comment_body
+diff --git a/core/recipes/content_editor_role/config/user.role.content_editor.yml b/core/recipes/content_editor_role/config/user.role.content_editor.yml
+new file mode 100644
+index 0000000000..885c328225
+--- /dev/null
++++ b/core/recipes/content_editor_role/config/user.role.content_editor.yml
+@@ -0,0 +1,8 @@
++langcode: en
++status: true
++dependencies: {  }
++id: content_editor
++label: 'Content Editor'
++weight: 5
++is_admin: null
++permissions: {  }
+diff --git a/core/recipes/content_editor_role/recipe.yml b/core/recipes/content_editor_role/recipe.yml
+new file mode 100644
+index 0000000000..b5139d4866
+--- /dev/null
++++ b/core/recipes/content_editor_role/recipe.yml
+@@ -0,0 +1,3 @@
++name: 'Content editor role'
++description: 'Provides "Content editor" user role.'
++type: 'User role'
+diff --git a/core/recipes/document_media/config/core.entity_form_display.media.document.default.yml b/core/recipes/document_media/config/core.entity_form_display.media.document.default.yml
+new file mode 100644
+index 0000000000..7233f32e06
+--- /dev/null
++++ b/core/recipes/document_media/config/core.entity_form_display.media.document.default.yml
+@@ -0,0 +1,52 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.document.field_media_document
++    - media.type.document
++  module:
++    - file
++    - path
++id: media.document.default
++targetEntityType: media
++bundle: document
++mode: default
++content:
++  created:
++    type: datetime_timestamp
++    weight: 10
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  field_media_document:
++    type: file_generic
++    weight: 0
++    region: content
++    settings:
++      progress_indicator: throbber
++    third_party_settings: {  }
++  path:
++    type: path
++    weight: 30
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  status:
++    type: boolean_checkbox
++    weight: 100
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  uid:
++    type: entity_reference_autocomplete
++    weight: 5
++    region: content
++    settings:
++      match_operator: CONTAINS
++      match_limit: 10
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden:
++  name: true
+diff --git a/core/recipes/document_media/config/core.entity_form_display.media.document.media_library.yml b/core/recipes/document_media/config/core.entity_form_display.media.document.media_library.yml
+new file mode 100644
+index 0000000000..b7abbe903f
+--- /dev/null
++++ b/core/recipes/document_media/config/core.entity_form_display.media.document.media_library.yml
+@@ -0,0 +1,19 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_form_mode.media.media_library
++    - field.field.media.document.field_media_document
++    - media.type.document
++id: media.document.media_library
++targetEntityType: media
++bundle: document
++mode: media_library
++content: {  }
++hidden:
++  created: true
++  field_media_document: true
++  name: true
++  path: true
++  status: true
++  uid: true
+diff --git a/core/recipes/document_media/config/core.entity_view_display.media.document.default.yml b/core/recipes/document_media/config/core.entity_view_display.media.document.default.yml
+new file mode 100644
+index 0000000000..0c44314110
+--- /dev/null
++++ b/core/recipes/document_media/config/core.entity_view_display.media.document.default.yml
+@@ -0,0 +1,25 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.document.field_media_document
++    - media.type.document
++  module:
++    - file
++id: media.document.default
++targetEntityType: media
++bundle: document
++mode: default
++content:
++  field_media_document:
++    type: file_default
++    label: visually_hidden
++    settings: {  }
++    third_party_settings: {  }
++    weight: 1
++    region: content
++hidden:
++  created: true
++  name: true
++  thumbnail: true
++  uid: true
+diff --git a/core/recipes/document_media/config/core.entity_view_display.media.document.media_library.yml b/core/recipes/document_media/config/core.entity_view_display.media.document.media_library.yml
+new file mode 100644
+index 0000000000..1f8eb004af
+--- /dev/null
++++ b/core/recipes/document_media/config/core.entity_view_display.media.document.media_library.yml
+@@ -0,0 +1,31 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.media.media_library
++    - field.field.media.document.field_media_document
++    - image.style.thumbnail
++    - media.type.document
++  module:
++    - image
++id: media.document.media_library
++targetEntityType: media
++bundle: document
++mode: media_library
++content:
++  thumbnail:
++    type: image
++    label: hidden
++    settings:
++      image_style: thumbnail
++      image_link: ''
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  field_media_document: true
++  name: true
++  uid: true
+diff --git a/core/recipes/document_media/config/field.field.media.document.field_media_document.yml b/core/recipes/document_media/config/field.field.media.document.field_media_document.yml
+new file mode 100644
+index 0000000000..fb0b9909e2
+--- /dev/null
++++ b/core/recipes/document_media/config/field.field.media.document.field_media_document.yml
+@@ -0,0 +1,29 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.media.field_media_document
++    - media.type.document
++  module:
++    - file
++  enforced:
++    module:
++      - media
++id: media.document.field_media_document
++field_name: field_media_document
++entity_type: media
++bundle: document
++label: Document
++description: ''
++required: true
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  handler: 'default:file'
++  handler_settings: {  }
++  file_directory: '[date:custom:Y]-[date:custom:m]'
++  file_extensions: 'txt rtf doc docx ppt pptx xls xlsx pdf odf odg odp ods odt fodt fods fodp fodg key numbers pages'
++  max_filesize: ''
++  description_field: false
++field_type: file
+diff --git a/core/recipes/document_media/config/field.storage.media.field_media_document.yml b/core/recipes/document_media/config/field.storage.media.field_media_document.yml
+new file mode 100644
+index 0000000000..309e509de0
+--- /dev/null
++++ b/core/recipes/document_media/config/field.storage.media.field_media_document.yml
+@@ -0,0 +1,25 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - file
++    - media
++  enforced:
++    module:
++      - media
++id: media.field_media_document
++field_name: field_media_document
++entity_type: media
++type: file
++settings:
++  target_type: file
++  display_field: false
++  display_default: false
++  uri_scheme: public
++module: file
++locked: false
++cardinality: 1
++translatable: true
++indexes: {  }
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/document_media/config/media.type.document.yml b/core/recipes/document_media/config/media.type.document.yml
+new file mode 100644
+index 0000000000..35d7f1a60d
+--- /dev/null
++++ b/core/recipes/document_media/config/media.type.document.yml
+@@ -0,0 +1,13 @@
++langcode: en
++status: true
++dependencies: {  }
++id: document
++label: Document
++description: 'An uploaded file or document, such as a PDF.'
++source: file
++queue_thumbnail_downloads: false
++new_revision: true
++source_configuration:
++  source_field: field_media_document
++field_map:
++  name: name
+diff --git a/core/recipes/document_media/recipe.yml b/core/recipes/document_media/recipe.yml
+new file mode 100644
+index 0000000000..87c7daaa37
+--- /dev/null
++++ b/core/recipes/document_media/recipe.yml
+@@ -0,0 +1,18 @@
++name: 'Document media type'
++description: 'Provides "Document" media type and related configuration to enable uploaded files or documents, such as a PDF.'
++type: 'Media type'
++install:
++  - field
++  - file
++  - image
++  - media
++  - media_library
++  - path
++  - language
++config:
++  import:
++    media_library:
++      - core.entity_view_mode.media.media_library
++      - core.entity_form_mode.media.media_library
++    image:
++      - image.style.thumbnail
+diff --git a/core/recipes/editorial_workflow/config/workflows.workflow.editorial.yml b/core/recipes/editorial_workflow/config/workflows.workflow.editorial.yml
+new file mode 100644
+index 0000000000..e462b2ab95
+--- /dev/null
++++ b/core/recipes/editorial_workflow/config/workflows.workflow.editorial.yml
+@@ -0,0 +1,60 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - content_moderation
++id: editorial
++label: Editorial
++type: content_moderation
++type_settings:
++  states:
++    archived:
++      label: Archived
++      weight: 5
++      published: false
++      default_revision: true
++    draft:
++      label: Draft
++      weight: -5
++      published: false
++      default_revision: false
++    published:
++      label: Published
++      weight: 0
++      published: true
++      default_revision: true
++  transitions:
++    archive:
++      label: Archive
++      from:
++        - published
++      to: archived
++      weight: 2
++    archived_draft:
++      label: 'Restore to Draft'
++      from:
++        - archived
++      to: draft
++      weight: 3
++    archived_published:
++      label: Restore
++      from:
++        - archived
++      to: published
++      weight: 4
++    create_new_draft:
++      label: 'Create New Draft'
++      from:
++        - draft
++        - published
++      to: draft
++      weight: 0
++    publish:
++      label: Publish
++      from:
++        - draft
++        - published
++      to: published
++      weight: 1
++  entity_types: {  }
++  default_moderation_state: draft
+diff --git a/core/recipes/editorial_workflow/recipe.yml b/core/recipes/editorial_workflow/recipe.yml
+new file mode 100644
+index 0000000000..81a344d1fc
+--- /dev/null
++++ b/core/recipes/editorial_workflow/recipe.yml
+@@ -0,0 +1,10 @@
++name: 'Editorial workflow'
++description: 'Provides "Editorial" workflow.'
++type: 'Workflow'
++install:
++  - content_moderation
++  - node
++  - views
++config:
++  import:
++    content_moderation: '*'
+diff --git a/core/recipes/example/recipe.yml b/core/recipes/example/recipe.yml
+index 2103651c07..48650f3875 100644
+--- a/core/recipes/example/recipe.yml
++++ b/core/recipes/example/recipe.yml
+@@ -27,19 +27,18 @@ config:
+     # Import all configuration that is provided by the text module and any
+     # optional configuration that depends on the text module that is provided by
+     # modules already installed.
+-    text: *
++    text: '*'
+ 
+   # Configuration actions may be defined. The structure here should be
+   # entity_type.ID.action. Below the user role entity type with an ID of
+   # editor is having the permissions added. The permissions key will be
+   # mapped to the \Drupal\user\Entity\Role::grantPermission() method.
+   actions:
+-    user.role.editor:
+-      ensure_exists:
+-        label: 'Editor'
+-      grantPermissions:
+-        - 'delete any article content'
+-        - 'edit any article content'
++    role:
++      editor:
++        permissions:
++          - 'delete any article content'
++          - 'edit any article content'
+ 
+ content:
+ # A Drupal recipe can have a content directory. All content in this
+diff --git a/core/recipes/feedback_contact_form/config/contact.form.feedback.yml b/core/recipes/feedback_contact_form/config/contact.form.feedback.yml
+new file mode 100644
+index 0000000000..e222ecd4bf
+--- /dev/null
++++ b/core/recipes/feedback_contact_form/config/contact.form.feedback.yml
+@@ -0,0 +1,11 @@
++langcode: en
++status: true
++dependencies: {  }
++id: feedback
++label: 'Website feedback'
++recipients:
++  - admin@example.com
++reply: ''
++weight: 0
++message: 'Your message has been sent.'
++redirect: ''
+diff --git a/core/recipes/feedback_contact_form/recipe.yml b/core/recipes/feedback_contact_form/recipe.yml
+new file mode 100644
+index 0000000000..54ee1b4164
+--- /dev/null
++++ b/core/recipes/feedback_contact_form/recipe.yml
+@@ -0,0 +1,8 @@
++name: 'Website feedback contact form'
++description: 'Provides a website feedback contact form.'
++type: 'Contact form'
++install:
++  - contact
++config:
++  install:
++    contact: '*'
+diff --git a/core/recipes/full_html_editor/config/editor.editor.full_html.yml b/core/recipes/full_html_editor/config/editor.editor.full_html.yml
+new file mode 100644
+index 0000000000..a27ed46a5e
+--- /dev/null
++++ b/core/recipes/full_html_editor/config/editor.editor.full_html.yml
+@@ -0,0 +1,102 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - filter.format.full_html
++  module:
++    - ckeditor5
++format: full_html
++editor: ckeditor5
++settings:
++  toolbar:
++    items:
++      - bold
++      - italic
++      - strikethrough
++      - superscript
++      - subscript
++      - removeFormat
++      - '|'
++      - link
++      - '|'
++      - bulletedList
++      - numberedList
++      - '|'
++      - blockQuote
++      - drupalInsertImage
++      - insertTable
++      - horizontalLine
++      - '|'
++      - heading
++      - codeBlock
++      - '|'
++      - sourceEditing
++  plugins:
++    ckeditor5_codeBlock:
++      languages:
++        -
++          label: 'Plain text'
++          language: plaintext
++        -
++          label: C
++          language: c
++        -
++          label: 'C#'
++          language: cs
++        -
++          label: C++
++          language: cpp
++        -
++          label: CSS
++          language: css
++        -
++          label: Diff
++          language: diff
++        -
++          label: HTML
++          language: html
++        -
++          label: Java
++          language: java
++        -
++          label: JavaScript
++          language: javascript
++        -
++          label: PHP
++          language: php
++        -
++          label: Python
++          language: python
++        -
++          label: Ruby
++          language: ruby
++        -
++          label: TypeScript
++          language: typescript
++        -
++          label: XML
++          language: xml
++    ckeditor5_heading:
++      enabled_headings:
++        - heading2
++        - heading3
++        - heading4
++        - heading5
++        - heading6
++    ckeditor5_imageResize:
++      allow_resize: true
++    ckeditor5_list:
++      properties:
++        reversed: true
++        startIndex: true
++      multiBlock: true
++    ckeditor5_sourceEditing:
++      allowed_tags: {  }
++image_upload:
++  status: true
++  scheme: public
++  directory: inline-images
++  max_size: ''
++  max_dimensions:
++    width: 0
++    height: 0
+diff --git a/core/recipes/full_html_editor/recipe.yml b/core/recipes/full_html_editor/recipe.yml
+new file mode 100644
+index 0000000000..de7cb4c263
+--- /dev/null
++++ b/core/recipes/full_html_editor/recipe.yml
+@@ -0,0 +1,22 @@
++name: 'Full HTML editor'
++description: 'Provides "Full HTML" text editor.'
++type: 'Editor'
++recipes:
++  - full_html_format
++install:
++  - ckeditor5
++  - editor
++config:
++  install:
++    ckeditor5: '*'
++    editor: '*'
++#  actions:
++#    filter.format.full_html:
++#      setFilterConfig:
++#        editor_file_reference:
++#        -
++#          id: editor_file_reference
++#          provider: editor
++#          status: true
++#          weight: 11
++#          settings: {  }
+diff --git a/core/recipes/full_html_format/config/filter.format.full_html.yml b/core/recipes/full_html_format/config/filter.format.full_html.yml
+new file mode 100644
+index 0000000000..b802af1969
+--- /dev/null
++++ b/core/recipes/full_html_format/config/filter.format.full_html.yml
+@@ -0,0 +1,25 @@
++langcode: en
++status: true
++dependencies: {  }
++name: 'Full HTML'
++format: full_html
++weight: 2
++filters:
++  filter_align:
++    id: filter_align
++    provider: filter
++    status: true
++    weight: 8
++    settings: {  }
++  filter_caption:
++    id: filter_caption
++    provider: filter
++    status: true
++    weight: 9
++    settings: {  }
++  filter_htmlcorrector:
++    id: filter_htmlcorrector
++    provider: filter
++    status: true
++    weight: 10
++    settings: {  }
+diff --git a/core/recipes/full_html_format/recipe.yml b/core/recipes/full_html_format/recipe.yml
+new file mode 100644
+index 0000000000..e98d375956
+--- /dev/null
++++ b/core/recipes/full_html_format/recipe.yml
+@@ -0,0 +1,8 @@
++name: 'Full HTML text format'
++description: 'Provides "Full HTML" text format.'
++type: 'Text format'
++install:
++  - filter
++config:
++  import:
++    filter: '*'
+diff --git a/core/recipes/image_media/config/core.entity_form_display.media.image.default.yml b/core/recipes/image_media/config/core.entity_form_display.media.image.default.yml
+new file mode 100644
+index 0000000000..1d7a19b593
+--- /dev/null
++++ b/core/recipes/image_media/config/core.entity_form_display.media.image.default.yml
+@@ -0,0 +1,54 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.image.field_media_image
++    - image.style.thumbnail
++    - media.type.image
++  module:
++    - image
++    - path
++id: media.image.default
++targetEntityType: media
++bundle: image
++mode: default
++content:
++  created:
++    type: datetime_timestamp
++    weight: 10
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  field_media_image:
++    type: image_image
++    weight: 0
++    region: content
++    settings:
++      progress_indicator: throbber
++      preview_image_style: thumbnail
++    third_party_settings: {  }
++  path:
++    type: path
++    weight: 30
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  status:
++    type: boolean_checkbox
++    weight: 100
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  uid:
++    type: entity_reference_autocomplete
++    weight: 5
++    region: content
++    settings:
++      match_operator: CONTAINS
++      match_limit: 10
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden:
++  name: true
+diff --git a/core/recipes/image_media/config/core.entity_form_display.media.image.media_library.yml b/core/recipes/image_media/config/core.entity_form_display.media.image.media_library.yml
+new file mode 100644
+index 0000000000..63babd6f80
+--- /dev/null
++++ b/core/recipes/image_media/config/core.entity_form_display.media.image.media_library.yml
+@@ -0,0 +1,29 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_form_mode.media.media_library
++    - field.field.media.image.field_media_image
++    - image.style.thumbnail
++    - media.type.image
++  module:
++    - image
++id: media.image.media_library
++targetEntityType: media
++bundle: image
++mode: media_library
++content:
++  field_media_image:
++    type: image_image
++    weight: 1
++    region: content
++    settings:
++      progress_indicator: throbber
++      preview_image_style: thumbnail
++    third_party_settings: {  }
++hidden:
++  created: true
++  name: true
++  path: true
++  status: true
++  uid: true
+diff --git a/core/recipes/image_media/config/core.entity_view_display.media.image.default.yml b/core/recipes/image_media/config/core.entity_view_display.media.image.default.yml
+new file mode 100644
+index 0000000000..e2b85e90ac
+--- /dev/null
++++ b/core/recipes/image_media/config/core.entity_view_display.media.image.default.yml
+@@ -0,0 +1,30 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.image.field_media_image
++    - image.style.large
++    - media.type.image
++  module:
++    - image
++id: media.image.default
++targetEntityType: media
++bundle: image
++mode: default
++content:
++  field_media_image:
++    type: image
++    label: visually_hidden
++    settings:
++      image_style: large
++      image_link: ''
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 1
++    region: content
++hidden:
++  created: true
++  name: true
++  thumbnail: true
++  uid: true
+diff --git a/core/recipes/image_media/config/core.entity_view_display.media.image.media_library.yml b/core/recipes/image_media/config/core.entity_view_display.media.image.media_library.yml
+new file mode 100644
+index 0000000000..15469d4def
+--- /dev/null
++++ b/core/recipes/image_media/config/core.entity_view_display.media.image.media_library.yml
+@@ -0,0 +1,31 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.media.media_library
++    - field.field.media.image.field_media_image
++    - image.style.medium
++    - media.type.image
++  module:
++    - image
++id: media.image.media_library
++targetEntityType: media
++bundle: image
++mode: media_library
++content:
++  thumbnail:
++    type: image
++    label: hidden
++    settings:
++      image_style: medium
++      image_link: ''
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  field_media_image: true
++  name: true
++  uid: true
+diff --git a/core/recipes/image_media/config/field.field.media.image.field_media_image.yml b/core/recipes/image_media/config/field.field.media.image.field_media_image.yml
+new file mode 100644
+index 0000000000..689315625e
+--- /dev/null
++++ b/core/recipes/image_media/config/field.field.media.image.field_media_image.yml
+@@ -0,0 +1,40 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.media.field_media_image
++    - media.type.image
++  module:
++    - image
++  enforced:
++    module:
++      - media
++id: media.image.field_media_image
++field_name: field_media_image
++entity_type: media
++bundle: image
++label: Image
++description: ''
++required: true
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  handler: 'default:file'
++  handler_settings: {  }
++  file_directory: '[date:custom:Y]-[date:custom:m]'
++  file_extensions: 'png gif jpg jpeg'
++  max_filesize: ''
++  max_resolution: ''
++  min_resolution: ''
++  alt_field: true
++  alt_field_required: true
++  title_field: false
++  title_field_required: false
++  default_image:
++    uuid: null
++    alt: ''
++    title: ''
++    width: null
++    height: null
++field_type: image
+diff --git a/core/recipes/image_media/config/field.storage.media.field_media_image.yml b/core/recipes/image_media/config/field.storage.media.field_media_image.yml
+new file mode 100644
+index 0000000000..59a6fbe142
+--- /dev/null
++++ b/core/recipes/image_media/config/field.storage.media.field_media_image.yml
+@@ -0,0 +1,32 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - file
++    - image
++    - media
++  enforced:
++    module:
++      - media
++id: media.field_media_image
++field_name: field_media_image
++entity_type: media
++type: image
++settings:
++  target_type: file
++  display_field: false
++  display_default: false
++  uri_scheme: public
++  default_image:
++    uuid: null
++    alt: ''
++    title: ''
++    width: null
++    height: null
++module: image
++locked: false
++cardinality: 1
++translatable: true
++indexes: {  }
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/image_media/config/media.type.image.yml b/core/recipes/image_media/config/media.type.image.yml
+new file mode 100644
+index 0000000000..b92ef428c3
+--- /dev/null
++++ b/core/recipes/image_media/config/media.type.image.yml
+@@ -0,0 +1,13 @@
++langcode: en
++status: true
++dependencies: {  }
++id: image
++label: Image
++description: 'Use local images for reusable media.'
++source: image
++queue_thumbnail_downloads: false
++new_revision: true
++source_configuration:
++  source_field: field_media_image
++field_map:
++  name: name
+diff --git a/core/recipes/image_media/recipe.yml b/core/recipes/image_media/recipe.yml
+new file mode 100644
+index 0000000000..68f4bb4f41
+--- /dev/null
++++ b/core/recipes/image_media/recipe.yml
+@@ -0,0 +1,18 @@
++name: 'Image media type'
++description: 'Provides "Image" media type and related configuration. Use local images for reusable media.'
++type: 'Media type'
++install:
++  - field
++  - file
++  - media
++  - media_library
++  - path
++config:
++  import:
++    media_library:
++      - core.entity_view_mode.media.media_library
++      - core.entity_form_mode.media.media_library
++    image:
++      - image.style.medium
++      - image.style.large
++      - image.style.thumbnail
+diff --git a/core/recipes/page_content_type/config/core.base_field_override.node.page.promote.yml b/core/recipes/page_content_type/config/core.base_field_override.node.page.promote.yml
+new file mode 100644
+index 0000000000..27226a1a6f
+--- /dev/null
++++ b/core/recipes/page_content_type/config/core.base_field_override.node.page.promote.yml
+@@ -0,0 +1,21 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - node.type.page
++id: node.page.promote
++field_name: promote
++entity_type: node
++bundle: page
++label: 'Promoted to front page'
++description: ''
++required: false
++translatable: false
++default_value:
++  -
++    value: 0
++default_value_callback: ''
++settings:
++  on_label: 'On'
++  off_label: 'Off'
++field_type: boolean
+diff --git a/core/recipes/page_content_type/config/core.entity_form_display.node.page.default.yml b/core/recipes/page_content_type/config/core.entity_form_display.node.page.default.yml
+new file mode 100644
+index 0000000000..edb853ed3d
+--- /dev/null
++++ b/core/recipes/page_content_type/config/core.entity_form_display.node.page.default.yml
+@@ -0,0 +1,76 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.node.page.body
++    - node.type.page
++  module:
++    - path
++    - text
++id: node.page.default
++targetEntityType: node
++bundle: page
++mode: default
++content:
++  body:
++    type: text_textarea_with_summary
++    weight: 31
++    region: content
++    settings:
++      rows: 9
++      summary_rows: 3
++      placeholder: ''
++      show_summary: false
++    third_party_settings: {  }
++  created:
++    type: datetime_timestamp
++    weight: 10
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  path:
++    type: path
++    weight: 30
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  promote:
++    type: boolean_checkbox
++    weight: 15
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  status:
++    type: boolean_checkbox
++    weight: 120
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  sticky:
++    type: boolean_checkbox
++    weight: 16
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  title:
++    type: string_textfield
++    weight: -5
++    region: content
++    settings:
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++  uid:
++    type: entity_reference_autocomplete
++    weight: 5
++    region: content
++    settings:
++      match_operator: CONTAINS
++      match_limit: 10
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden: {  }
+diff --git a/core/recipes/page_content_type/config/core.entity_view_display.node.page.default.yml b/core/recipes/page_content_type/config/core.entity_view_display.node.page.default.yml
+new file mode 100644
+index 0000000000..bd70482cd1
+--- /dev/null
++++ b/core/recipes/page_content_type/config/core.entity_view_display.node.page.default.yml
+@@ -0,0 +1,25 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.node.page.body
++    - node.type.page
++  module:
++    - text
++    - user
++id: node.page.default
++targetEntityType: node
++bundle: page
++mode: default
++content:
++  body:
++    type: text_default
++    label: hidden
++    settings: {  }
++    third_party_settings: {  }
++    weight: 100
++    region: content
++  links:
++    weight: 101
++    region: content
++hidden: {  }
+diff --git a/core/recipes/page_content_type/config/core.entity_view_display.node.page.teaser.yml b/core/recipes/page_content_type/config/core.entity_view_display.node.page.teaser.yml
+new file mode 100644
+index 0000000000..34a70d932f
+--- /dev/null
++++ b/core/recipes/page_content_type/config/core.entity_view_display.node.page.teaser.yml
+@@ -0,0 +1,27 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.node.teaser
++    - field.field.node.page.body
++    - node.type.page
++  module:
++    - text
++    - user
++id: node.page.teaser
++targetEntityType: node
++bundle: page
++mode: teaser
++content:
++  body:
++    type: text_summary_or_trimmed
++    label: hidden
++    settings:
++      trim_length: 600
++    third_party_settings: {  }
++    weight: 100
++    region: content
++  links:
++    weight: 101
++    region: content
++hidden: {  }
+diff --git a/core/recipes/page_content_type/config/field.field.node.page.body.yml b/core/recipes/page_content_type/config/field.field.node.page.body.yml
+new file mode 100644
+index 0000000000..4ff17d0e71
+--- /dev/null
++++ b/core/recipes/page_content_type/config/field.field.node.page.body.yml
+@@ -0,0 +1,22 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.node.body
++    - node.type.page
++  module:
++    - text
++id: node.page.body
++field_name: body
++entity_type: node
++bundle: page
++label: Body
++description: ''
++required: false
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  display_summary: true
++  required_summary: false
++field_type: text_with_summary
+diff --git a/core/recipes/page_content_type/config/node.type.page.yml b/core/recipes/page_content_type/config/node.type.page.yml
+new file mode 100644
+index 0000000000..4c1a522ad5
+--- /dev/null
++++ b/core/recipes/page_content_type/config/node.type.page.yml
+@@ -0,0 +1,10 @@
++langcode: en
++status: true
++dependencies: {  }
++name: 'Basic page'
++type: page
++description: "Use <em>basic pages</em> for your static content, such as an 'About us' page."
++help: ''
++new_revision: true
++preview_mode: 1
++display_submitted: false
+diff --git a/core/recipes/page_content_type/recipe.yml b/core/recipes/page_content_type/recipe.yml
+new file mode 100644
+index 0000000000..648fe12130
+--- /dev/null
++++ b/core/recipes/page_content_type/recipe.yml
+@@ -0,0 +1,23 @@
++name: 'Basic page'
++description: "Provides Basic page content type and related configuration. Use <em>basic pages</em> for your static content, such as an 'About us' page."
++type: 'Content type'
++recipes:
++  - content_editor_role
++install:
++  - field
++  - node
++  - path
++  - text
++  - user
++config:
++  import:
++    node:
++      - core.entity_view_mode.node.teaser
++      - field.storage.node.body
++  actions:
++    user.role.content_editor:
++      grantPermissions:
++        - 'create page content'
++        - 'delete page revisions'
++        - 'delete own page content'
++        - 'edit own page content'
+diff --git a/core/recipes/remote_video_media/config/core.entity_form_display.media.remote_video.default.yml b/core/recipes/remote_video_media/config/core.entity_form_display.media.remote_video.default.yml
+new file mode 100644
+index 0000000000..0f57855dd0
+--- /dev/null
++++ b/core/recipes/remote_video_media/config/core.entity_form_display.media.remote_video.default.yml
+@@ -0,0 +1,53 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.remote_video.field_media_oembed_video
++    - media.type.remote_video
++  module:
++    - media
++    - path
++id: media.remote_video.default
++targetEntityType: media
++bundle: remote_video
++mode: default
++content:
++  created:
++    type: datetime_timestamp
++    weight: 10
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  field_media_oembed_video:
++    type: oembed_textfield
++    weight: 0
++    region: content
++    settings:
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++  path:
++    type: path
++    weight: 30
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  status:
++    type: boolean_checkbox
++    weight: 100
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  uid:
++    type: entity_reference_autocomplete
++    weight: 5
++    region: content
++    settings:
++      match_operator: CONTAINS
++      match_limit: 10
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden:
++  name: true
+diff --git a/core/recipes/remote_video_media/config/core.entity_form_display.media.remote_video.media_library.yml b/core/recipes/remote_video_media/config/core.entity_form_display.media.remote_video.media_library.yml
+new file mode 100644
+index 0000000000..6a1461cded
+--- /dev/null
++++ b/core/recipes/remote_video_media/config/core.entity_form_display.media.remote_video.media_library.yml
+@@ -0,0 +1,19 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_form_mode.media.media_library
++    - field.field.media.remote_video.field_media_oembed_video
++    - media.type.remote_video
++id: media.remote_video.media_library
++targetEntityType: media
++bundle: remote_video
++mode: media_library
++content: {  }
++hidden:
++  created: true
++  field_media_oembed_video: true
++  name: true
++  path: true
++  status: true
++  uid: true
+diff --git a/core/recipes/remote_video_media/config/core.entity_view_display.media.remote_video.default.yml b/core/recipes/remote_video_media/config/core.entity_view_display.media.remote_video.default.yml
+new file mode 100644
+index 0000000000..f25014bd0f
+--- /dev/null
++++ b/core/recipes/remote_video_media/config/core.entity_view_display.media.remote_video.default.yml
+@@ -0,0 +1,27 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.remote_video.field_media_oembed_video
++    - media.type.remote_video
++  module:
++    - media
++id: media.remote_video.default
++targetEntityType: media
++bundle: remote_video
++mode: default
++content:
++  field_media_oembed_video:
++    type: oembed
++    label: hidden
++    settings:
++      max_width: 0
++      max_height: 0
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  name: true
++  thumbnail: true
++  uid: true
+diff --git a/core/recipes/remote_video_media/config/core.entity_view_display.media.remote_video.media_library.yml b/core/recipes/remote_video_media/config/core.entity_view_display.media.remote_video.media_library.yml
+new file mode 100644
+index 0000000000..268b1b37fe
+--- /dev/null
++++ b/core/recipes/remote_video_media/config/core.entity_view_display.media.remote_video.media_library.yml
+@@ -0,0 +1,31 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.media.media_library
++    - field.field.media.remote_video.field_media_oembed_video
++    - image.style.medium
++    - media.type.remote_video
++  module:
++    - image
++id: media.remote_video.media_library
++targetEntityType: media
++bundle: remote_video
++mode: media_library
++content:
++  thumbnail:
++    type: image
++    label: hidden
++    settings:
++      image_style: medium
++      image_link: ''
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  field_media_oembed_video: true
++  name: true
++  uid: true
+diff --git a/core/recipes/remote_video_media/config/field.field.media.remote_video.field_media_oembed_video.yml b/core/recipes/remote_video_media/config/field.field.media.remote_video.field_media_oembed_video.yml
+new file mode 100644
+index 0000000000..6ff378fa17
+--- /dev/null
++++ b/core/recipes/remote_video_media/config/field.field.media.remote_video.field_media_oembed_video.yml
+@@ -0,0 +1,18 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.media.field_media_oembed_video
++    - media.type.remote_video
++id: media.remote_video.field_media_oembed_video
++field_name: field_media_oembed_video
++entity_type: media
++bundle: remote_video
++label: 'Video URL'
++description: ''
++required: true
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings: {  }
++field_type: string
+diff --git a/core/recipes/remote_video_media/config/field.storage.media.field_media_oembed_video.yml b/core/recipes/remote_video_media/config/field.storage.media.field_media_oembed_video.yml
+new file mode 100644
+index 0000000000..e8664f0b18
+--- /dev/null
++++ b/core/recipes/remote_video_media/config/field.storage.media.field_media_oembed_video.yml
+@@ -0,0 +1,20 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - media
++id: media.field_media_oembed_video
++field_name: field_media_oembed_video
++entity_type: media
++type: string
++settings:
++  max_length: 255
++  case_sensitive: false
++  is_ascii: false
++module: core
++locked: false
++cardinality: 1
++translatable: true
++indexes: {  }
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/remote_video_media/config/media.type.remote_video.yml b/core/recipes/remote_video_media/config/media.type.remote_video.yml
+new file mode 100644
+index 0000000000..203d698327
+--- /dev/null
++++ b/core/recipes/remote_video_media/config/media.type.remote_video.yml
+@@ -0,0 +1,17 @@
++langcode: en
++status: true
++dependencies: {  }
++id: remote_video
++label: 'Remote video'
++description: 'A remotely hosted video from YouTube or Vimeo.'
++source: 'oembed:video'
++queue_thumbnail_downloads: false
++new_revision: true
++source_configuration:
++  source_field: field_media_oembed_video
++  thumbnails_directory: 'public://oembed_thumbnails/[date:custom:Y-m]'
++  providers:
++    - YouTube
++    - Vimeo
++field_map:
++  title: name
+diff --git a/core/recipes/remote_video_media/recipe.yml b/core/recipes/remote_video_media/recipe.yml
+new file mode 100644
+index 0000000000..918bc0b4b0
+--- /dev/null
++++ b/core/recipes/remote_video_media/recipe.yml
+@@ -0,0 +1,16 @@
++name: 'Remote video'
++description: 'Provides "Remote video" media type and related configuration. A remotely hosted video from YouTube or Vimeo.'
++type: 'Media type'
++install:
++  - field
++  - image
++  - media
++  - media_library
++  - path
++config:
++  import:
++    media_library:
++      - core.entity_view_mode.media.media_library
++      - core.entity_form_mode.media.media_library
++    image:
++      - image.style.medium
+diff --git a/core/recipes/restricted_html_format/config/filter.format.restricted_html.yml b/core/recipes/restricted_html_format/config/filter.format.restricted_html.yml
+new file mode 100644
+index 0000000000..5656b14514
+--- /dev/null
++++ b/core/recipes/restricted_html_format/config/filter.format.restricted_html.yml
+@@ -0,0 +1,29 @@
++langcode: en
++status: true
++dependencies: {  }
++name: 'Restricted HTML'
++format: restricted_html
++weight: 1
++filters:
++  filter_html:
++    id: filter_html
++    provider: filter
++    status: true
++    weight: -10
++    settings:
++      allowed_html: '<a href hreflang> <em> <strong> <cite> <blockquote cite> <code> <ul type> <ol start type> <li> <dl> <dt> <dd> <h2 id> <h3 id> <h4 id> <h5 id> <h6 id>'
++      filter_html_help: true
++      filter_html_nofollow: false
++  filter_autop:
++    id: filter_autop
++    provider: filter
++    status: true
++    weight: 0
++    settings: {  }
++  filter_url:
++    id: filter_url
++    provider: filter
++    status: true
++    weight: 0
++    settings:
++      filter_url_length: 72
+diff --git a/core/recipes/restricted_html_format/recipe.yml b/core/recipes/restricted_html_format/recipe.yml
+new file mode 100644
+index 0000000000..8fe7c3762e
+--- /dev/null
++++ b/core/recipes/restricted_html_format/recipe.yml
+@@ -0,0 +1,8 @@
++name: 'Restricted HTML'
++description: 'Provides "Restricted HTML" text format.'
++type: 'Text format'
++install:
++  - filter
++config:
++  import:
++    filter: '*'
+diff --git a/core/recipes/standard/composer.json b/core/recipes/standard/composer.json
+new file mode 100644
+index 0000000000..5408c71c0e
+--- /dev/null
++++ b/core/recipes/standard/composer.json
+@@ -0,0 +1,15 @@
++{
++    "name": "drupal_recipe/standard",
++    "description": "Provides a standard site with commonly used features pre-configured.",
++    "type": "drupal-recipe",
++    "require": {
++      "drupal/core": "^10"
++    },
++    "suggest": {
++      "drupal-recipe/standard_media_types": "Provides a standard set of media types.",
++      "drupal-recipe/standard_responsive_images": "Provides basic responsive images and accompanying image styles.",
++      "drupal-recipe/editorial_workflow": "Provides additional editorial workflows on top of published or unpublished.",
++    },
++    "license": "GPL-2.0-or-later"
++  }
++  
+diff --git a/core/recipes/standard/recipe.yml b/core/recipes/standard/recipe.yml
+new file mode 100644
+index 0000000000..8b0cba441f
+--- /dev/null
++++ b/core/recipes/standard/recipe.yml
+@@ -0,0 +1,34 @@
++name: 'Standard installation profile'
++description: 'Provides a standard site with commonly used features pre-configured.'
++type: 'Site'
++recipes:
++  - basic_block_type
++  - feedback_contact_form
++  - standard_content_types
++  - standard_editors
++  - standard_roles
++  - user_user_type
++install:
++  - automated_cron
++config:
++  actions:
++    automated_cron.settings:
++      simple_config_update:
++       interval: 10800
++    node.settings:
++      simple_config_update:
++       use_admin_theme: true
++    system.cron:
++      simple_config_update:
++        threshold:
++          requirements_warning: 172800
++          requirements_error: 1209600
++        logging: 1
++    system.site:
++      simple_config_update:
++        page:
++          front: /node
++    system.theme:
++      simple_config_update:
++        admin: claro
++        default: olivero
+diff --git a/core/recipes/standard_content_types/recipe.yml b/core/recipes/standard_content_types/recipe.yml
+new file mode 100644
+index 0000000000..f347df0d0d
+--- /dev/null
++++ b/core/recipes/standard_content_types/recipe.yml
+@@ -0,0 +1,6 @@
++name: 'Standard content types'
++description: 'Provides a stadard set of content types.'
++type: 'Content type'
++recipes:
++  - article_content_type
++  - page_content_type
+diff --git a/core/recipes/standard_editors/recipe.yml b/core/recipes/standard_editors/recipe.yml
+new file mode 100644
+index 0000000000..3c1d8876be
+--- /dev/null
++++ b/core/recipes/standard_editors/recipe.yml
+@@ -0,0 +1,6 @@
++name: 'Standard editors'
++description: 'Provides a standard set of WYSIWYG editors and accompanying text formats.'
++type: 'Editor'
++recipes:
++  - basic_html_editor
++  - full_html_editor
+diff --git a/core/recipes/standard_media_types/recipe.yml b/core/recipes/standard_media_types/recipe.yml
+new file mode 100644
+index 0000000000..52c6754e29
+--- /dev/null
++++ b/core/recipes/standard_media_types/recipe.yml
+@@ -0,0 +1,9 @@
++name: 'Standard media types'
++description: 'Provides a standard set of media types.'
++type: 'Media type'
++recipes:
++  - audio_media
++  - document_media
++  - image_media
++  - remote_video_media
++  - video_media
+diff --git a/core/recipes/standard_responsive_images/config/image.style.max_1300x1300.yml b/core/recipes/standard_responsive_images/config/image.style.max_1300x1300.yml
+new file mode 100644
+index 0000000000..28aad5aada
+--- /dev/null
++++ b/core/recipes/standard_responsive_images/config/image.style.max_1300x1300.yml
+@@ -0,0 +1,17 @@
++langcode: en
++status: true
++dependencies:
++  enforced:
++    module:
++      - responsive_image
++name: max_1300x1300
++label: 'Max 1300x1300'
++effects:
++  04caae9a-fa3e-4ea6-ae09-9c26aec7d308:
++    uuid: 04caae9a-fa3e-4ea6-ae09-9c26aec7d308
++    id: image_scale
++    weight: 1
++    data:
++      width: 1300
++      height: 1300
++      upscale: false
+diff --git a/core/recipes/standard_responsive_images/config/image.style.max_2600x2600.yml b/core/recipes/standard_responsive_images/config/image.style.max_2600x2600.yml
+new file mode 100644
+index 0000000000..ace3a8a492
+--- /dev/null
++++ b/core/recipes/standard_responsive_images/config/image.style.max_2600x2600.yml
+@@ -0,0 +1,17 @@
++langcode: en
++status: true
++dependencies:
++  enforced:
++    module:
++      - responsive_image
++name: max_2600x2600
++label: 'Max 2600x2600'
++effects:
++  9b311dd1-0351-45a1-9500-cd069e4670cb:
++    uuid: 9b311dd1-0351-45a1-9500-cd069e4670cb
++    id: image_scale
++    weight: 3
++    data:
++      width: 2600
++      height: 2600
++      upscale: false
+diff --git a/core/recipes/standard_responsive_images/config/image.style.max_325x325.yml b/core/recipes/standard_responsive_images/config/image.style.max_325x325.yml
+new file mode 100644
+index 0000000000..6a2289e76a
+--- /dev/null
++++ b/core/recipes/standard_responsive_images/config/image.style.max_325x325.yml
+@@ -0,0 +1,17 @@
++langcode: en
++status: true
++dependencies:
++  enforced:
++    module:
++      - responsive_image
++name: max_325x325
++label: 'Max 325x325'
++effects:
++  cb842cc8-682f-42a6-bd05-5a1ac726f0d8:
++    uuid: cb842cc8-682f-42a6-bd05-5a1ac726f0d8
++    id: image_scale
++    weight: 1
++    data:
++      width: 325
++      height: 325
++      upscale: false
+diff --git a/core/recipes/standard_responsive_images/config/image.style.max_650x650.yml b/core/recipes/standard_responsive_images/config/image.style.max_650x650.yml
+new file mode 100644
+index 0000000000..9aa0fb5fc8
+--- /dev/null
++++ b/core/recipes/standard_responsive_images/config/image.style.max_650x650.yml
+@@ -0,0 +1,17 @@
++langcode: en
++status: true
++dependencies:
++  enforced:
++    module:
++      - responsive_image
++name: max_650x650
++label: 'Max 650x650'
++effects:
++  949c201a-77f5-48f6-ba00-be91eb1aad47:
++    uuid: 949c201a-77f5-48f6-ba00-be91eb1aad47
++    id: image_scale
++    weight: 1
++    data:
++      width: 650
++      height: 650
++      upscale: false
+diff --git a/core/recipes/standard_responsive_images/config/responsive_image.styles.narrow.yml b/core/recipes/standard_responsive_images/config/responsive_image.styles.narrow.yml
+new file mode 100644
+index 0000000000..51590cd7b2
+--- /dev/null
++++ b/core/recipes/standard_responsive_images/config/responsive_image.styles.narrow.yml
+@@ -0,0 +1,22 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - image.style.max_1300x1300
++    - image.style.max_325x325
++    - image.style.max_650x650
++id: narrow
++label: Narrow
++image_style_mappings:
++  -
++    image_mapping_type: sizes
++    image_mapping:
++      sizes: '(min-width: 1290px) 325px, (min-width: 851px) 25vw, (min-width: 560px) 50vw, 100vw'
++      sizes_image_styles:
++        - max_1300x1300
++        - max_650x650
++        - max_325x325
++    breakpoint_id: responsive_image.viewport_sizing
++    multiplier: 1x
++breakpoint_group: responsive_image
++fallback_image_style: max_325x325
+diff --git a/core/recipes/standard_responsive_images/config/responsive_image.styles.wide.yml b/core/recipes/standard_responsive_images/config/responsive_image.styles.wide.yml
+new file mode 100644
+index 0000000000..06cb8a98e8
+--- /dev/null
++++ b/core/recipes/standard_responsive_images/config/responsive_image.styles.wide.yml
+@@ -0,0 +1,24 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - image.style.max_1300x1300
++    - image.style.max_2600x2600
++    - image.style.max_325x325
++    - image.style.max_650x650
++id: wide
++label: Wide
++image_style_mappings:
++  -
++    image_mapping_type: sizes
++    image_mapping:
++      sizes: '(min-width: 1290px) 1290px, 100vw'
++      sizes_image_styles:
++        - max_2600x2600
++        - max_1300x1300
++        - max_650x650
++        - max_325x325
++    breakpoint_id: responsive_image.viewport_sizing
++    multiplier: 1x
++breakpoint_group: responsive_image
++fallback_image_style: max_325x325
+diff --git a/core/recipes/standard_responsive_images/recipe.yml b/core/recipes/standard_responsive_images/recipe.yml
+new file mode 100644
+index 0000000000..4c07deb66e
+--- /dev/null
++++ b/core/recipes/standard_responsive_images/recipe.yml
+@@ -0,0 +1,10 @@
++name: 'Standard Responsive Images'
++description: 'Provides basic responsive images and accompanying image styles.'
++type: 'Responsive image'
++install:
++  - image
++  - responsive_image
++config:
++  import:
++    image: '*'
++    responsive_image: '*'
+diff --git a/core/recipes/standard_roles/recipe.yml b/core/recipes/standard_roles/recipe.yml
+new file mode 100644
+index 0000000000..aefd748b06
+--- /dev/null
++++ b/core/recipes/standard_roles/recipe.yml
+@@ -0,0 +1,6 @@
++name: 'Basic user roles'
++description: 'Provides a basic set of user roles.'
++type: 'User role'
++recipes:
++  - administrator_role
++  - content_editor_role
+diff --git a/core/recipes/tags_taxonomy/config/field.storage.node.field_tags.yml b/core/recipes/tags_taxonomy/config/field.storage.node.field_tags.yml
+new file mode 100644
+index 0000000000..73f821f2c0
+--- /dev/null
++++ b/core/recipes/tags_taxonomy/config/field.storage.node.field_tags.yml
+@@ -0,0 +1,19 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - node
++    - taxonomy
++id: node.field_tags
++field_name: field_tags
++entity_type: node
++type: entity_reference
++settings:
++  target_type: taxonomy_term
++module: core
++locked: false
++cardinality: -1
++translatable: true
++indexes: {  }
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/tags_taxonomy/config/taxonomy.vocabulary.tags.yml b/core/recipes/tags_taxonomy/config/taxonomy.vocabulary.tags.yml
+new file mode 100644
+index 0000000000..4c754e86c7
+--- /dev/null
++++ b/core/recipes/tags_taxonomy/config/taxonomy.vocabulary.tags.yml
+@@ -0,0 +1,7 @@
++langcode: en
++status: true
++dependencies: {  }
++name: Tags
++vid: tags
++description: 'Use tags to group articles on similar topics into categories.'
++weight: 0
+diff --git a/core/recipes/tags_taxonomy/recipe.yml b/core/recipes/tags_taxonomy/recipe.yml
+new file mode 100644
+index 0000000000..e14f52083b
+--- /dev/null
++++ b/core/recipes/tags_taxonomy/recipe.yml
+@@ -0,0 +1,7 @@
++name: Tags
++description: 'Provides "Tags" taxonomy vocabulary and related configuration. Use tags to group content on similar topics into categories.'
++type: 'Taxonomy'
++install:
++  - field
++  - node
++  - taxonomy
+diff --git a/core/recipes/user_user_type/config/core.entity_form_display.user.user.default.yml b/core/recipes/user_user_type/config/core.entity_form_display.user.user.default.yml
+new file mode 100644
+index 0000000000..8098d4688a
+--- /dev/null
++++ b/core/recipes/user_user_type/config/core.entity_form_display.user.user.default.yml
+@@ -0,0 +1,35 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.user.user.user_picture
++    - image.style.thumbnail
++  module:
++    - image
++    - user
++id: user.user.default
++targetEntityType: user
++bundle: user
++mode: default
++content:
++  account:
++    weight: -10
++    region: content
++  contact:
++    weight: 5
++    region: content
++  language:
++    weight: 0
++    region: content
++  timezone:
++    weight: 6
++    region: content
++  user_picture:
++    type: image_image
++    weight: -1
++    region: content
++    settings:
++      progress_indicator: throbber
++      preview_image_style: thumbnail
++    third_party_settings: {  }
++hidden: {  }
+diff --git a/core/recipes/user_user_type/config/core.entity_view_display.user.user.compact.yml b/core/recipes/user_user_type/config/core.entity_view_display.user.user.compact.yml
+new file mode 100644
+index 0000000000..1e0ea7c9f7
+--- /dev/null
++++ b/core/recipes/user_user_type/config/core.entity_view_display.user.user.compact.yml
+@@ -0,0 +1,28 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.user.compact
++    - field.field.user.user.user_picture
++    - image.style.thumbnail
++  module:
++    - image
++    - user
++id: user.user.compact
++targetEntityType: user
++bundle: user
++mode: compact
++content:
++  user_picture:
++    type: image
++    label: hidden
++    settings:
++      image_style: thumbnail
++      image_link: content
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  member_for: true
+diff --git a/core/recipes/user_user_type/config/core.entity_view_display.user.user.default.yml b/core/recipes/user_user_type/config/core.entity_view_display.user.user.default.yml
+new file mode 100644
+index 0000000000..9bc86dc890
+--- /dev/null
++++ b/core/recipes/user_user_type/config/core.entity_view_display.user.user.default.yml
+@@ -0,0 +1,29 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.user.user.user_picture
++    - image.style.thumbnail
++  module:
++    - image
++    - user
++id: user.user.default
++targetEntityType: user
++bundle: user
++mode: default
++content:
++  member_for:
++    weight: 5
++    region: content
++  user_picture:
++    type: image
++    label: hidden
++    settings:
++      image_style: thumbnail
++      image_link: content
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden: {  }
+diff --git a/core/recipes/user_user_type/config/field.field.user.user.user_picture.yml b/core/recipes/user_user_type/config/field.field.user.user.user_picture.yml
+new file mode 100644
+index 0000000000..1038af3419
+--- /dev/null
++++ b/core/recipes/user_user_type/config/field.field.user.user.user_picture.yml
+@@ -0,0 +1,37 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.user.user_picture
++  module:
++    - image
++    - user
++id: user.user.user_picture
++field_name: user_picture
++entity_type: user
++bundle: user
++label: Picture
++description: 'Your virtual face or picture.'
++required: false
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  handler: 'default:file'
++  handler_settings: {  }
++  file_directory: 'pictures/[date:custom:Y]-[date:custom:m]'
++  file_extensions: 'png gif jpg jpeg'
++  max_filesize: ''
++  max_resolution: ''
++  min_resolution: ''
++  alt_field: false
++  alt_field_required: false
++  title_field: false
++  title_field_required: false
++  default_image:
++    uuid: null
++    alt: ''
++    title: ''
++    width: null
++    height: null
++field_type: image
+diff --git a/core/recipes/user_user_type/config/field.storage.user.user_picture.yml b/core/recipes/user_user_type/config/field.storage.user.user_picture.yml
+new file mode 100644
+index 0000000000..6d0476df6c
+--- /dev/null
++++ b/core/recipes/user_user_type/config/field.storage.user.user_picture.yml
+@@ -0,0 +1,31 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - file
++    - image
++    - user
++id: user.user_picture
++field_name: user_picture
++entity_type: user
++type: image
++settings:
++  target_type: file
++  display_field: false
++  display_default: false
++  uri_scheme: public
++  default_image:
++    uuid: null
++    alt: ''
++    title: ''
++    width: null
++    height: null
++module: image
++locked: false
++cardinality: 1
++translatable: true
++indexes:
++  target_id:
++    - target_id
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/user_user_type/recipe.yml b/core/recipes/user_user_type/recipe.yml
+new file mode 100644
+index 0000000000..1c229273dc
+--- /dev/null
++++ b/core/recipes/user_user_type/recipe.yml
+@@ -0,0 +1,18 @@
++name: User
++description: 'Provides a basic user type and related configuration.'
++type: 'User type'
++install:
++  - field
++  - file
++  - image
++  - user
++config:
++  import:
++    image:
++      - image.style.thumbnail
++  actions:
++    user.settings:
++      simple_config_update:
++        verify_mail: true
++        register: visitors_admin_approval
++        cancel_method: user_cancel_block
+diff --git a/core/recipes/video_media/config/core.entity_form_display.media.video.default.yml b/core/recipes/video_media/config/core.entity_form_display.media.video.default.yml
+new file mode 100644
+index 0000000000..e3fdffe0da
+--- /dev/null
++++ b/core/recipes/video_media/config/core.entity_form_display.media.video.default.yml
+@@ -0,0 +1,52 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.video.field_media_video_file
++    - media.type.video
++  module:
++    - file
++    - path
++id: media.video.default
++targetEntityType: media
++bundle: video
++mode: default
++content:
++  created:
++    type: datetime_timestamp
++    weight: 10
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  field_media_video_file:
++    type: file_generic
++    weight: 0
++    region: content
++    settings:
++      progress_indicator: throbber
++    third_party_settings: {  }
++  path:
++    type: path
++    weight: 30
++    region: content
++    settings: {  }
++    third_party_settings: {  }
++  status:
++    type: boolean_checkbox
++    weight: 100
++    region: content
++    settings:
++      display_label: true
++    third_party_settings: {  }
++  uid:
++    type: entity_reference_autocomplete
++    weight: 5
++    region: content
++    settings:
++      match_operator: CONTAINS
++      match_limit: 10
++      size: 60
++      placeholder: ''
++    third_party_settings: {  }
++hidden:
++  name: true
+diff --git a/core/recipes/video_media/config/core.entity_form_display.media.video.media_library.yml b/core/recipes/video_media/config/core.entity_form_display.media.video.media_library.yml
+new file mode 100644
+index 0000000000..db2cf0b19e
+--- /dev/null
++++ b/core/recipes/video_media/config/core.entity_form_display.media.video.media_library.yml
+@@ -0,0 +1,19 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_form_mode.media.media_library
++    - field.field.media.video.field_media_video_file
++    - media.type.video
++id: media.video.media_library
++targetEntityType: media
++bundle: video
++mode: media_library
++content: {  }
++hidden:
++  created: true
++  field_media_video_file: true
++  name: true
++  path: true
++  status: true
++  uid: true
+diff --git a/core/recipes/video_media/config/core.entity_view_display.media.video.default.yml b/core/recipes/video_media/config/core.entity_view_display.media.video.default.yml
+new file mode 100644
+index 0000000000..3c26f17aae
+--- /dev/null
++++ b/core/recipes/video_media/config/core.entity_view_display.media.video.default.yml
+@@ -0,0 +1,32 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.field.media.video.field_media_video_file
++    - media.type.video
++  module:
++    - file
++id: media.video.default
++targetEntityType: media
++bundle: video
++mode: default
++content:
++  field_media_video_file:
++    type: file_video
++    label: visually_hidden
++    settings:
++      controls: true
++      autoplay: false
++      loop: false
++      multiple_file_display_type: tags
++      muted: false
++      width: 640
++      height: 480
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  name: true
++  thumbnail: true
++  uid: true
+diff --git a/core/recipes/video_media/config/core.entity_view_display.media.video.media_library.yml b/core/recipes/video_media/config/core.entity_view_display.media.video.media_library.yml
+new file mode 100644
+index 0000000000..a4db1a99b8
+--- /dev/null
++++ b/core/recipes/video_media/config/core.entity_view_display.media.video.media_library.yml
+@@ -0,0 +1,31 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - core.entity_view_mode.media.media_library
++    - field.field.media.video.field_media_video_file
++    - image.style.thumbnail
++    - media.type.video
++  module:
++    - image
++id: media.video.media_library
++targetEntityType: media
++bundle: video
++mode: media_library
++content:
++  thumbnail:
++    type: image
++    label: hidden
++    settings:
++      image_style: thumbnail
++      image_link: ''
++      image_loading:
++        attribute: lazy
++    third_party_settings: {  }
++    weight: 0
++    region: content
++hidden:
++  created: true
++  field_media_video_file: true
++  name: true
++  uid: true
+diff --git a/core/recipes/video_media/config/field.field.media.video.field_media_video_file.yml b/core/recipes/video_media/config/field.field.media.video.field_media_video_file.yml
+new file mode 100644
+index 0000000000..b6c0be146e
+--- /dev/null
++++ b/core/recipes/video_media/config/field.field.media.video.field_media_video_file.yml
+@@ -0,0 +1,26 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    - field.storage.media.field_media_video_file
++    - media.type.video
++  module:
++    - file
++id: media.video.field_media_video_file
++field_name: field_media_video_file
++entity_type: media
++bundle: video
++label: 'Video file'
++description: ''
++required: true
++translatable: true
++default_value: {  }
++default_value_callback: ''
++settings:
++  handler: 'default:file'
++  handler_settings: {  }
++  file_directory: '[date:custom:Y]-[date:custom:m]'
++  file_extensions: mp4
++  max_filesize: ''
++  description_field: false
++field_type: file
+diff --git a/core/recipes/video_media/config/field.storage.media.field_media_video_file.yml b/core/recipes/video_media/config/field.storage.media.field_media_video_file.yml
+new file mode 100644
+index 0000000000..0ac96a14b7
+--- /dev/null
++++ b/core/recipes/video_media/config/field.storage.media.field_media_video_file.yml
+@@ -0,0 +1,22 @@
++langcode: en
++status: true
++dependencies:
++  module:
++    - file
++    - media
++id: media.field_media_video_file
++field_name: field_media_video_file
++entity_type: media
++type: file
++settings:
++  target_type: file
++  display_field: false
++  display_default: false
++  uri_scheme: public
++module: file
++locked: false
++cardinality: 1
++translatable: true
++indexes: {  }
++persist_with_no_fields: false
++custom_storage: false
+diff --git a/core/recipes/video_media/config/media.type.video.yml b/core/recipes/video_media/config/media.type.video.yml
+new file mode 100644
+index 0000000000..b07ac27059
+--- /dev/null
++++ b/core/recipes/video_media/config/media.type.video.yml
+@@ -0,0 +1,13 @@
++langcode: en
++status: true
++dependencies: {  }
++id: video
++label: Video
++description: 'A locally hosted video file.'
++source: video_file
++queue_thumbnail_downloads: false
++new_revision: true
++source_configuration:
++  source_field: field_media_video_file
++field_map:
++  name: name
+diff --git a/core/recipes/video_media/recipe.yml b/core/recipes/video_media/recipe.yml
+new file mode 100644
+index 0000000000..e37f82ec0a
+--- /dev/null
++++ b/core/recipes/video_media/recipe.yml
+@@ -0,0 +1,18 @@
++name: Video
++description: 'Provides "Video" media type and related configuration. A locally hosted video file.'
++type: 'Media type'
++install:
++  - field
++  - file
++  - image
++  - media
++  - media_library
++  - path
++config:
++  import:
++    media_library:
++      - core.entity_view_mode.media.media_library
++      - core.entity_form_mode.media.media_library
++      - core.entity_view_display.media.video.media_library
++    image:
++      - image.style.thumbnail

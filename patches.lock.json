@@ -1,5 +1,5 @@
 {
-    "_hash": "c4ee4ccdecc50caf9c7c187c076dc8942fdded65d349b81e7a7bbb27db738f09",
+    "_hash": "785174ed52593aa846c86dc2071ae3b8e2f5ad73915ddac11df2dc90458898f8",
     "patches": {
         "drupal/core": [
             {
@@ -15,6 +15,14 @@
                 "description": "Roll back config changes on recipe failure",
                 "url": "./patches/distributions_recipes-58-3cc0fb7956c6e3e6ee0fc4add5adf43f3869facf-no-tests.diff",
                 "sha256": "e8c4dfe0f23dda05511e720f122af7bf349773bbc3775cf9a21a8622120cc117",
+                "depth": 2,
+                "extra": []
+            },
+            {
+                "package": "drupal/core",
+                "description": "Model Standard as a set of recipes",
+                "url": "./patches/distributions_recipes-3301370-29.patch",
+                "sha256": "e1c80b46d40008c41d9b6f73af2441866f3a051dd32c1338fd8de53fb67e9356",
                 "depth": 2,
                 "extra": []
             }
