@@ -566,7 +566,7 @@ index 0000000000..a6964d3b0a
 +custom_storage: false
 diff --git a/core/recipes/article_content_type/config/node.type.article.yml b/core/recipes/article_content_type/config/node.type.article.yml
 new file mode 100644
-index 0000000000..1fd439ce71
+index 0000000000..ae8e9d1258
 --- /dev/null
 +++ b/core/recipes/article_content_type/config/node.type.article.yml
 @@ -0,0 +1,10 @@
@@ -576,7 +576,7 @@ index 0000000000..1fd439ce71
 +name: Article
 +type: article
 +description: 'Use <em>articles</em> for time-sensitive content like news, press releases or blog posts.'
-+help: ''
++help: null
 +new_revision: true
 +preview_mode: 1
 +display_submitted: true
@@ -959,7 +959,7 @@ index 0000000000..49eaff2f21
 +      - image.style.thumbnail
 diff --git a/core/recipes/basic_block_type/config/block_content.type.basic.yml b/core/recipes/basic_block_type/config/block_content.type.basic.yml
 new file mode 100644
-index 0000000000..f01ced96bc
+index 0000000000..52ee484241
 --- /dev/null
 +++ b/core/recipes/basic_block_type/config/block_content.type.basic.yml
 @@ -0,0 +1,7 @@
@@ -968,7 +968,7 @@ index 0000000000..f01ced96bc
 +dependencies: {  }
 +id: basic
 +label: 'Basic block'
-+revision: 0
++revision: false
 +description: 'A basic block contains a title and a body.'
 diff --git a/core/recipes/basic_block_type/config/core.entity_form_display.block_content.basic.default.yml b/core/recipes/basic_block_type/config/core.entity_form_display.block_content.basic.default.yml
 new file mode 100644
@@ -1155,7 +1155,7 @@ index 0000000000..07b13d8e16
 +    height: 0
 diff --git a/core/recipes/basic_html_editor/recipe.yml b/core/recipes/basic_html_editor/recipe.yml
 new file mode 100644
-index 0000000000..a2661f0ab0
+index 0000000000..4a7d3bccdf
 --- /dev/null
 +++ b/core/recipes/basic_html_editor/recipe.yml
 @@ -0,0 +1,22 @@
@@ -1168,7 +1168,7 @@ index 0000000000..a2661f0ab0
 +recipes:
 +  - basic_html_format
 +config:
-+  install:
++  import:
 +    ckeditor5: '*'
 +    editor: '*'
 +#  actions:
@@ -1796,7 +1796,7 @@ index 0000000000..e222ecd4bf
 +redirect: ''
 diff --git a/core/recipes/feedback_contact_form/recipe.yml b/core/recipes/feedback_contact_form/recipe.yml
 new file mode 100644
-index 0000000000..54ee1b4164
+index 0000000000..8718febc87
 --- /dev/null
 +++ b/core/recipes/feedback_contact_form/recipe.yml
 @@ -0,0 +1,8 @@
@@ -1806,7 +1806,7 @@ index 0000000000..54ee1b4164
 +install:
 +  - contact
 +config:
-+  install:
++  import:
 +    contact: '*'
 diff --git a/core/recipes/full_html_editor/config/editor.editor.full_html.yml b/core/recipes/full_html_editor/config/editor.editor.full_html.yml
 new file mode 100644
@@ -1918,7 +1918,7 @@ index 0000000000..a27ed46a5e
 +    height: 0
 diff --git a/core/recipes/full_html_editor/recipe.yml b/core/recipes/full_html_editor/recipe.yml
 new file mode 100644
-index 0000000000..de7cb4c263
+index 0000000000..dbe3857e9b
 --- /dev/null
 +++ b/core/recipes/full_html_editor/recipe.yml
 @@ -0,0 +1,22 @@
@@ -1931,7 +1931,7 @@ index 0000000000..de7cb4c263
 +  - ckeditor5
 +  - editor
 +config:
-+  install:
++  import:
 +    ckeditor5: '*'
 +    editor: '*'
 +#  actions:
@@ -2487,7 +2487,7 @@ index 0000000000..4ff17d0e71
 +field_type: text_with_summary
 diff --git a/core/recipes/page_content_type/config/node.type.page.yml b/core/recipes/page_content_type/config/node.type.page.yml
 new file mode 100644
-index 0000000000..4c1a522ad5
+index 0000000000..755e8ed8ce
 --- /dev/null
 +++ b/core/recipes/page_content_type/config/node.type.page.yml
 @@ -0,0 +1,10 @@
@@ -2497,7 +2497,7 @@ index 0000000000..4c1a522ad5
 +name: 'Basic page'
 +type: page
 +description: "Use <em>basic pages</em> for your static content, such as an 'About us' page."
-+help: ''
++help: null
 +new_revision: true
 +preview_mode: 1
 +display_submitted: false
@@ -2851,10 +2851,10 @@ index 0000000000..5408c71c0e
 +  
 diff --git a/core/recipes/standard/recipe.yml b/core/recipes/standard/recipe.yml
 new file mode 100644
-index 0000000000..8b0cba441f
+index 0000000000..3f5bcf34c2
 --- /dev/null
 +++ b/core/recipes/standard/recipe.yml
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,67 @@
 +name: 'Standard installation profile'
 +description: 'Provides a standard site with commonly used features pre-configured.'
 +type: 'Site'
@@ -2866,7 +2866,40 @@ index 0000000000..8b0cba441f
 +  - standard_roles
 +  - user_user_type
 +install:
++  - node
++  - history
++  - block
++  - breakpoint
++  - ckeditor5
++  - config
++  - comment
++  - contextual
++  - contact
++  - menu_link_content
++  - datetime
++  - block_content
++  - editor
++  - help
++  - image
++  - menu_ui
++  - options
++  - path
++  - page_cache
++  - dynamic_page_cache
++  - big_pipe
++  - taxonomy
++  - dblog
++  - search
++  - shortcut
++  - toolbar
++  - field_ui
++  - file
++  - views
++  - views_ui
 +  - automated_cron
++  - announcements_feed
++  - olivero
++  - claro
 +config:
 +  actions:
 +    automated_cron.settings:
@@ -3632,3 +3665,57 @@ index 0000000000..e37f82ec0a
 +      - core.entity_view_display.media.video.media_library
 +    image:
 +      - image.style.thumbnail
+diff --git a/core/tests/Drupal/FunctionalTests/Core/Recipe/StandardRecipeTest.php b/core/tests/Drupal/FunctionalTests/Core/Recipe/StandardRecipeTest.php
+new file mode 100644
+index 0000000000..4f386a8c60
+--- /dev/null
++++ b/core/tests/Drupal/FunctionalTests/Core/Recipe/StandardRecipeTest.php
+@@ -0,0 +1,48 @@
++<?php
++
++namespace Drupal\FunctionalTests\Core\Recipe;
++
++use Drupal\Tests\BrowserTestBase;
++use Symfony\Component\Process\PhpExecutableFinder;
++use Symfony\Component\Process\Process;
++
++/**
++ * Tests Standard recipe installation expectations.
++ *
++ * @group Recipe
++ */
++class StandardRecipeTest extends BrowserTestBase {
++
++  /**
++   * {@inheritdoc}
++   */
++  protected $defaultTheme = 'stark';
++
++  /**
++   * {@inheritdoc}
++   */
++  protected $profile = 'empty';
++
++  public function testStandardRecipe(): void {
++    $this->assertFalse(\Drupal::moduleHandler()->moduleExists('node'), 'The node module is not installed');
++    $php_executable_finder = new PhpExecutableFinder();
++    $php = $php_executable_finder->find();
++
++    $recipe_command = [
++      $php,
++      'core/scripts/drupal',
++      'recipe',
++      'core/recipes/standard',
++    ];
++    $process = new Process($recipe_command, NULL, ['DRUPAL_DEV_SITE_PATH' => $this->siteDirectory]);
++    $process->setTimeout(500);
++    $status = $process->run();
++    $this->assertSame('', $process->getErrorOutput());
++    $this->assertSame(0, $status);
++    $this->assertStringContainsString('Standard installation profile applied successfully', $process->getOutput());
++
++    $this->rebuildAll();
++    $this->assertTrue(\Drupal::moduleHandler()->moduleExists('node'), 'The node module is installed');
++  }
++
++}
