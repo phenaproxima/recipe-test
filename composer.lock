@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b6f8a8703d87160a510cb5367272b492",
+    "content-hash": "41fd2712ce8c902f3f02b6bbbbba5dc3",
     "packages": [
         {
             "name": "asm89/stack-cors",
@@ -1818,7 +1818,7 @@
             "source": {
                 "type": "git",
                 "url": "https://git.drupalcode.org/project/automatic_updates.git",
-                "reference": "1bb711e0b69bee257a9abaa11ba28c52e81c7638"
+                "reference": "de142aac17f1a6a2c7faaf2ac5c2a7eade99e046"
             },
             "require": {
                 "composer-runtime-api": "^2.1",
@@ -1840,8 +1840,8 @@
                     "dev-3.0.x": "3.0.x-dev"
                 },
                 "drupal": {
-                    "version": "3.0.0+7-dev",
-                    "datestamp": "1705009705",
+                    "version": "3.0.0+9-dev",
+                    "datestamp": "1705532069",
                     "security-coverage": {
                         "status": "not-covered",
                         "message": "Dev releases are not covered by Drupal security advisories."
@@ -1945,12 +1945,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/drupal/core.git",
-                "reference": "9d9935cb0bae95957c4a4284310278608f05ff2b"
+                "reference": "631b8ec3dd1fdf8924486926603308c03904feff"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/drupal/core/zipball/9d9935cb0bae95957c4a4284310278608f05ff2b",
-                "reference": "9d9935cb0bae95957c4a4284310278608f05ff2b",
+                "url": "https://api.github.com/repos/drupal/core/zipball/631b8ec3dd1fdf8924486926603308c03904feff",
+                "reference": "631b8ec3dd1fdf8924486926603308c03904feff",
                 "shasum": ""
             },
             "require": {
@@ -2100,7 +2100,7 @@
             "support": {
                 "source": "https://github.com/drupal/core/tree/10.2.x"
             },
-            "time": "2024-01-16T11:02:01+00:00"
+            "time": "2024-01-25T10:02:29+00:00"
         },
         {
             "name": "drupal/core-composer-scaffold",
@@ -2158,12 +2158,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/drupal/core-recommended.git",
-                "reference": "ae0e1002cf344709244fcfffb3e55cb0189169ce"
+                "reference": "b9c06918ef98d07abe60867ca98d09e0696709a6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/drupal/core-recommended/zipball/ae0e1002cf344709244fcfffb3e55cb0189169ce",
-                "reference": "ae0e1002cf344709244fcfffb3e55cb0189169ce",
+                "url": "https://api.github.com/repos/drupal/core-recommended/zipball/b9c06918ef98d07abe60867ca98d09e0696709a6",
+                "reference": "b9c06918ef98d07abe60867ca98d09e0696709a6",
                 "shasum": ""
             },
             "require": {
@@ -2235,7 +2235,7 @@
             "support": {
                 "source": "https://github.com/drupal/core-recommended/tree/10.2.x"
             },
-            "time": "2024-01-05T09:27:16+00:00"
+            "time": "2024-01-16T21:19:55+00:00"
         },
         {
             "name": "drupal/project_browser",

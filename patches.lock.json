@@ -1,5 +1,5 @@
 {
-    "_hash": "5dbdf06c0e6bb64496c5281b1a4f782a446b6e2330a371caefed388f3c798875",
+    "_hash": "c92be5e4047d907ef7009bba31dc33d7928b3b002d8861e404f2bad05a11f8b9",
     "patches": {
         "drupal/core": [
             {
@@ -7,14 +7,6 @@
                 "description": "Add recipe support",
                 "url": "./patches/recipe-10.2.x-a14918e9a7057af3bf2449435d28f534c7ecc757.diff",
                 "sha256": "c6bc7ff39cd918a899a37f931e7a6c6e86dc16504af7380f5bb89416f661e450",
-                "depth": 2,
-                "extra": []
-            },
-            {
-                "package": "drupal/core",
-                "description": "Roll back config changes on recipe failure",
-                "url": "./patches/distributions_recipes-58-3cc0fb7956c6e3e6ee0fc4add5adf43f3869facf-no-tests.diff",
-                "sha256": "e8c4dfe0f23dda05511e720f122af7bf349773bbc3775cf9a21a8622120cc117",
                 "depth": 2,
                 "extra": []
             },
