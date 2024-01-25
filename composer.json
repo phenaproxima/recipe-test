@@ -108,7 +108,8 @@
         "install-from-recipe": [
             "@composer clean",
             "drush site:install empty --yes --db-url sqlite://$PWD/db.sqlite --account-pass admin",
-            "cd web && php ./core/scripts/drupal recipe ./core/recipes/standard"
+            "cd web && php ./core/scripts/drupal recipe ./core/recipes/standard",
+            "drush cache:rebuild"
         ],
         "install-drupal": [
             "@composer clean",
