@@ -92,7 +92,7 @@
             "drupal/core": {
                 "Add recipe support": "./patches/recipe-10.2.x-a14918e9a7057af3bf2449435d28f534c7ecc757.diff",
                 "Roll back config changes on recipe failure": "./patches/distributions_recipes-58-3cc0fb7956c6e3e6ee0fc4add5adf43f3869facf-no-tests.diff",
-                "Model Standard as a set of recipes": "./patches/distributions_recipes-3301370-34.patch"
+                "Model Standard as a set of recipes": "./patches/distributions_recipes-3301370-48.patch"
             },
             "drupal/project_browser": {
                 "Various fixes to 1.0.x for demo purposes": "./patches/project_browser-1.0.x-fixes.diff"

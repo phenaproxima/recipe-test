@@ -1,5 +1,5 @@
 {
-    "_hash": "f4b357d8d04adcb2d9a198352f99fe7a2ba5a7edffbd7ffdfa19b2f99cd62d1a",
+    "_hash": "5dbdf06c0e6bb64496c5281b1a4f782a446b6e2330a371caefed388f3c798875",
     "patches": {
         "drupal/core": [
             {
@@ -21,8 +21,8 @@
             {
                 "package": "drupal/core",
                 "description": "Model Standard as a set of recipes",
-                "url": "./patches/distributions_recipes-3301370-34.patch",
-                "sha256": "283c17b5fbe3a780a5f223ab9c444272e979fc3a373c6d38b8499ec4ce012281",
+                "url": "./patches/distributions_recipes-3301370-48.patch",
+                "sha256": "9024019ba62d0590a9bfc3a641d12dc0e6b738afec9eb5c7126cb6c41ae11505",
                 "depth": 2,
                 "extra": []
             }

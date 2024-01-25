@@ -30,18 +30,141 @@ index a8f3f02552..91fc33a18c 100644
          }
        }
      }
+diff --git a/core/profiles/empty/config/install/contact.form.feedback.yml b/core/profiles/empty/config/install/contact.form.feedback.yml
+new file mode 100644
+index 0000000000..e222ecd4bf
+--- /dev/null
++++ b/core/profiles/empty/config/install/contact.form.feedback.yml
+@@ -0,0 +1,11 @@
++langcode: en
++status: true
++dependencies: {  }
++id: feedback
++label: 'Website feedback'
++recipients:
++  - admin@example.com
++reply: ''
++weight: 0
++message: 'Your message has been sent.'
++redirect: ''
+diff --git a/core/profiles/empty/config/install/core.menu.static_menu_link_overrides.yml b/core/profiles/empty/config/install/core.menu.static_menu_link_overrides.yml
+new file mode 100644
+index 0000000000..14af566d7f
+--- /dev/null
++++ b/core/profiles/empty/config/install/core.menu.static_menu_link_overrides.yml
+@@ -0,0 +1,7 @@
++definitions:
++  contact__site_page:
++    menu_name: footer
++    parent: ''
++    weight: 0
++    expanded: false
++    enabled: true
 diff --git a/core/profiles/empty/empty.info.yml b/core/profiles/empty/empty.info.yml
 new file mode 100644
-index 0000000000..2f04c13851
+index 0000000000..8fd116243e
 --- /dev/null
 +++ b/core/profiles/empty/empty.info.yml
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,10 @@
 +name: Empty
 +type: profile
 +description: 'More minimal than minimal. Suitable for starting with recipes.'
 +version: VERSION
 +themes:
 +  - stark
++install:
++  - shortcut
++  - contact
++
+diff --git a/core/profiles/empty/empty.install b/core/profiles/empty/empty.install
+new file mode 100644
+index 0000000000..b2a118c64a
+--- /dev/null
++++ b/core/profiles/empty/empty.install
+@@ -0,0 +1,41 @@
++<?php
++
++/**
++ * @file
++ * Install, update and uninstall functions for the standard installation profile.
++ */
++
++use Drupal\user\Entity\User;
++use Drupal\shortcut\Entity\Shortcut;
++
++/**
++ * Implements hook_install().
++ *
++ * Perform actions to set up the site for this profile.
++ *
++ * @see system_install()
++ */
++function empty_install() {
++  // Assign user 1 the "administrator" role.
++  /** @var \Drupal\user\Entity\User $user */
++  $user = User::load(1);
++  $user->addRole('administrator');
++  $user->save();
++
++  // Populate the default shortcut set.
++  $shortcut = Shortcut::create([
++    'shortcut_set' => 'default',
++    'title' => t('Add content'),
++    'weight' => -20,
++    'link' => ['uri' => 'internal:/node/add'],
++  ]);
++  $shortcut->save();
++
++  $shortcut = Shortcut::create([
++    'shortcut_set' => 'default',
++    'title' => t('All content'),
++    'weight' => -19,
++    'link' => ['uri' => 'internal:/admin/content'],
++  ]);
++  $shortcut->save();
++}
+diff --git a/core/profiles/empty/empty.links.menu.yml b/core/profiles/empty/empty.links.menu.yml
+new file mode 100644
+index 0000000000..2278b2163b
+--- /dev/null
++++ b/core/profiles/empty/empty.links.menu.yml
+@@ -0,0 +1,4 @@
++standard.front_page:
++  title: 'Home'
++  route_name: '<front>'
++  menu_name: main
+diff --git a/core/profiles/empty/empty.profile b/core/profiles/empty/empty.profile
+new file mode 100644
+index 0000000000..864e3d0dd9
+--- /dev/null
++++ b/core/profiles/empty/empty.profile
+@@ -0,0 +1,26 @@
++<?php
++
++/**
++ * @file
++ * Enables modules and site configuration for a standard site installation.
++ */
++
++use Drupal\contact\Entity\ContactForm;
++use Drupal\Core\Form\FormStateInterface;
++
++/**
++ * Implements hook_form_FORM_ID_alter() for install_configure_form().
++ *
++ * Allows the profile to alter the site configuration form.
++ */
++function empty_form_install_configure_form_alter(&$form, FormStateInterface $form_state) {
++  $form['#submit'][] = 'empty_form_install_configure_submit';
++}
++
++/**
++ * Submission handler to sync the contact.form.feedback recipient.
++ */
++function empty_form_install_configure_submit($form, FormStateInterface $form_state) {
++  $site_mail = $form_state->getValue('site_mail');
++  ContactForm::load('feedback')->setRecipients([$site_mail])->trustData()->save();
++}
 diff --git a/core/profiles/empty/tests/src/Functional/EmptyTest.php b/core/profiles/empty/tests/src/Functional/EmptyTest.php
 new file mode 100644
 index 0000000000..cfac7c6689
@@ -184,42 +307,39 @@ index 0000000000..cf3b12af98
 +field_type: comment
 diff --git a/core/recipes/article_comment/recipe.yml b/core/recipes/article_comment/recipe.yml
 new file mode 100644
-index 0000000000..f75f9012cb
+index 0000000000..45c61161e6
 --- /dev/null
 +++ b/core/recipes/article_comment/recipe.yml
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,29 @@
 +name: 'Article comments'
 +description: 'Provides commenting on article content.'
 +type: 'Content field'
 +recipes:
 +  - article_content_type
 +  - comment_comment_type
-+#config:
-+#  actions:
-+#    core.entity_view_display.node.article.default:
-+#      setComponent:
-+#        comment:
-+#        -
-+#          type: comment_default
-+#          label: above
-+#          settings:
-+#            view_mode: default
-+#            pager_id: 0
-+#          third_party_settings: {  }
-+#          weight: 110
-+#          region: content
-+#    core.entity_view_display.node.article.teaser:
-+#      removeComponent:
-+#        comment
-+#    core.entity_form_display.node.article.default:
-+#      setComponent:
-+#        comment:
-+#        -
-+#          type: comment_default
-+#          weight: 20
-+#          region: content
-+#          settings: {  }
-+#          third_party_settings: {  }
++config:
++  actions:
++    core.entity_form_display.node.article.default:
++      setComponent:
++        name: comment
++        options:
++          type: comment_default
++          weight: 20
++          region: content
++          settings: {}
++          third_party_settings: {}
++    core.entity_view_display.node.article.default:
++      setComponent:
++        name: comment
++        options:
++          type: comment_default
++          label: above
++          settings:
++            view_mode: default
++            pager_id: 0
++          third_party_settings: {  }
++          weight: 110
++          region: content
 diff --git a/core/recipes/article_content_type/composer.json b/core/recipes/article_content_type/composer.json
 new file mode 100644
 index 0000000000..489b5bdd11
@@ -243,7 +363,7 @@ index 0000000000..489b5bdd11
 \ No newline at end of file
 diff --git a/core/recipes/article_content_type/config/core.entity_form_display.node.article.default.yml b/core/recipes/article_content_type/config/core.entity_form_display.node.article.default.yml
 new file mode 100644
-index 0000000000..925d61e1ae
+index 0000000000..f29f17bc04
 --- /dev/null
 +++ b/core/recipes/article_content_type/config/core.entity_form_display.node.article.default.yml
 @@ -0,0 +1,87 @@
@@ -266,7 +386,7 @@ index 0000000000..925d61e1ae
 +content:
 +  body:
 +    type: text_textarea_with_summary
-+    weight: 1
++    weight: 2
 +    region: content
 +    settings:
 +      rows: 9
@@ -282,7 +402,7 @@ index 0000000000..925d61e1ae
 +    third_party_settings: {  }
 +  field_image:
 +    type: image_image
-+    weight: 4
++    weight: 1
 +    region: content
 +    settings:
 +      progress_indicator: throbber
@@ -336,7 +456,7 @@ index 0000000000..925d61e1ae
 +hidden: {  }
 diff --git a/core/recipes/article_content_type/config/core.entity_view_display.node.article.default.yml b/core/recipes/article_content_type/config/core.entity_view_display.node.article.default.yml
 new file mode 100644
-index 0000000000..2d18967510
+index 0000000000..a129e14dd6
 --- /dev/null
 +++ b/core/recipes/article_content_type/config/core.entity_view_display.node.article.default.yml
 @@ -0,0 +1,41 @@
@@ -371,7 +491,7 @@ index 0000000000..2d18967510
 +      image_style: wide
 +      image_link: ''
 +      image_loading:
-+        attribute: lazy
++        attribute: eager
 +    third_party_settings: {  }
 +    weight: -1
 +    region: content
@@ -410,10 +530,10 @@ index 0000000000..05896dd3d7
 +  field_image: true
 diff --git a/core/recipes/article_content_type/config/core.entity_view_display.node.article.teaser.yml b/core/recipes/article_content_type/config/core.entity_view_display.node.article.teaser.yml
 new file mode 100644
-index 0000000000..407fe2161a
+index 0000000000..58201be835
 --- /dev/null
 +++ b/core/recipes/article_content_type/config/core.entity_view_display.node.article.teaser.yml
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,43 @@
 +langcode: en
 +status: true
 +dependencies:
@@ -456,6 +576,7 @@ index 0000000000..407fe2161a
 +    region: content
 +hidden:
 +  field_image: true
++  field_tags: true
 diff --git a/core/recipes/article_content_type/config/field.field.node.article.body.yml b/core/recipes/article_content_type/config/field.field.node.article.body.yml
 new file mode 100644
 index 0000000000..b36fbd5844
@@ -486,7 +607,7 @@ index 0000000000..b36fbd5844
 +field_type: text_with_summary
 diff --git a/core/recipes/article_content_type/config/field.field.node.article.field_image.yml b/core/recipes/article_content_type/config/field.field.node.article.field_image.yml
 new file mode 100644
-index 0000000000..ab7b9940a7
+index 0000000000..af4daeca6d
 --- /dev/null
 +++ b/core/recipes/article_content_type/config/field.field.node.article.field_image.yml
 @@ -0,0 +1,37 @@
@@ -512,7 +633,7 @@ index 0000000000..ab7b9940a7
 +  handler: 'default:file'
 +  handler_settings: {  }
 +  file_directory: '[date:custom:Y]-[date:custom:m]'
-+  file_extensions: 'png gif jpg jpeg'
++  file_extensions: 'png gif jpg jpeg webp'
 +  max_filesize: ''
 +  max_resolution: ''
 +  min_resolution: ''
@@ -582,11 +703,11 @@ index 0000000000..ae8e9d1258
 +display_submitted: true
 diff --git a/core/recipes/article_content_type/recipe.yml b/core/recipes/article_content_type/recipe.yml
 new file mode 100644
-index 0000000000..e3cb9f2741
+index 0000000000..f9f069ca26
 --- /dev/null
 +++ b/core/recipes/article_content_type/recipe.yml
-@@ -0,0 +1,30 @@
-+name: Article
+@@ -0,0 +1,29 @@
++name: 'Article content type'
 +description: 'Provides Article content type and related configuration. Use <em>articles</em> for time-sensitive content like news, press releases or blog posts.'
 +type: 'Content type'
 +recipes:
@@ -598,7 +719,6 @@ index 0000000000..e3cb9f2741
 +  - node
 +  - path
 +  - text
-+  - user
 +config:
 +  import:
 +    node:
@@ -650,10 +770,10 @@ index 0000000000..1b9c4cc4ee
 +field_type: entity_reference
 diff --git a/core/recipes/article_tags/recipe.yml b/core/recipes/article_tags/recipe.yml
 new file mode 100644
-index 0000000000..55f43204d5
+index 0000000000..99865df103
 --- /dev/null
 +++ b/core/recipes/article_tags/recipe.yml
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,43 @@
 +name: 'Article tags'
 +description: 'Provides tags on article content.'
 +type: 'Content field'
@@ -686,8 +806,6 @@ index 0000000000..55f43204d5
 +          third_party_settings: {  }
 +          weight: 10
 +          region: content
-+      # removeComponent:
-+      #   field_tags
 +    core.entity_view_display.node.article.default:
 +      setComponent:
 +        name: field_tags
@@ -1082,11 +1200,11 @@ index 0000000000..8ff5b496e9
 +  import:
 +    block_content:
 +      - field.storage.block_content.body
-diff --git a/core/recipes/basic_html_editor/config/editor.editor.basic_html.yml b/core/recipes/basic_html_editor/config/editor.editor.basic_html.yml
+diff --git a/core/recipes/basic_html_format_editor/config/editor.editor.basic_html.yml b/core/recipes/basic_html_format_editor/config/editor.editor.basic_html.yml
 new file mode 100644
 index 0000000000..07b13d8e16
 --- /dev/null
-+++ b/core/recipes/basic_html_editor/config/editor.editor.basic_html.yml
++++ b/core/recipes/basic_html_format_editor/config/editor.editor.basic_html.yml
 @@ -0,0 +1,65 @@
 +langcode: en
 +status: true
@@ -1153,56 +1271,29 @@ index 0000000000..07b13d8e16
 +  max_dimensions:
 +    width: 0
 +    height: 0
-diff --git a/core/recipes/basic_html_editor/recipe.yml b/core/recipes/basic_html_editor/recipe.yml
+diff --git a/core/recipes/basic_html_format_editor/config/filter.format.basic_html.yml b/core/recipes/basic_html_format_editor/config/filter.format.basic_html.yml
 new file mode 100644
-index 0000000000..4a7d3bccdf
+index 0000000000..d81fc17303
 --- /dev/null
-+++ b/core/recipes/basic_html_editor/recipe.yml
-@@ -0,0 +1,22 @@
-+name: 'Basic HTML editor'
-+description: 'Provides "Basic HTML" text editor and related configuration.'
-+type: 'Editor'
-+install:
-+  - editor
-+  - ckeditor5
-+recipes:
-+  - basic_html_format
-+config:
-+  import:
-+    ckeditor5: '*'
-+    editor: '*'
-+#  actions:
-+#    filter.format.full_html:
-+#      setFilterConfig:
-+#        editor_file_reference:
-+#        -
-+#          id: editor_file_reference
-+#          provider: editor
-+#          status: true
-+#          weight: 11
-+#          settings: {  }
-diff --git a/core/recipes/basic_html_format/config/filter.format.basic_html.yml b/core/recipes/basic_html_format/config/filter.format.basic_html.yml
-new file mode 100644
-index 0000000000..179db04f50
---- /dev/null
-+++ b/core/recipes/basic_html_format/config/filter.format.basic_html.yml
-@@ -0,0 +1,33 @@
++++ b/core/recipes/basic_html_format_editor/config/filter.format.basic_html.yml
+@@ -0,0 +1,50 @@
 +langcode: en
 +status: true
-+dependencies: {  }
++dependencies:
++  module:
++    - editor
 +name: 'Basic HTML'
 +format: basic_html
 +weight: 0
++roles:
++  - authenticated
 +filters:
-+  filter_html:
-+    id: filter_html
-+    provider: filter
++  editor_file_reference:
++    id: editor_file_reference
++    provider: editor
 +    status: true
-+    weight: -10
-+    settings:
-+      allowed_html: '<a href hreflang> <em> <strong> <cite> <blockquote cite> <code> <ul type> <ol start type> <li> <dl> <dt> <dd> <h2 id> <h3 id> <h4 id> <h5 id> <h6 id> <p> <br> <span> <img src alt height width data-entity-type data-entity-uuid data-align data-caption>'
-+      filter_html_help: false
-+      filter_html_nofollow: false
++    weight: 11
++    settings: {  }
 +  filter_align:
 +    id: filter_align
 +    provider: filter
@@ -1215,21 +1306,39 @@ index 0000000000..179db04f50
 +    status: true
 +    weight: 8
 +    settings: {  }
++  filter_html:
++    id: filter_html
++    provider: filter
++    status: true
++    weight: -10
++    settings:
++      allowed_html: '<br> <p> <h2 id> <h3 id> <h4 id> <h5 id> <h6 id> <cite> <dl> <dt> <dd> <a hreflang href> <blockquote cite> <ul type> <ol start type> <strong> <em> <code> <li> <img src alt data-entity-uuid data-entity-type height width data-caption data-align>'
++      filter_html_help: false
++      filter_html_nofollow: false
 +  filter_html_image_secure:
 +    id: filter_html_image_secure
 +    provider: filter
 +    status: true
 +    weight: 9
-diff --git a/core/recipes/basic_html_format/recipe.yml b/core/recipes/basic_html_format/recipe.yml
++    settings: {  }
++  filter_image_lazy_load:
++    id: filter_image_lazy_load
++    provider: filter
++    status: true
++    weight: 15
++    settings: {  }
+diff --git a/core/recipes/basic_html_format_editor/recipe.yml b/core/recipes/basic_html_format_editor/recipe.yml
 new file mode 100644
-index 0000000000..9b20b8266d
+index 0000000000..84d3454ea1
 --- /dev/null
-+++ b/core/recipes/basic_html_format/recipe.yml
-@@ -0,0 +1,5 @@
-+name: 'Basic HTML text format'
-+description: 'Provides "Basic HTML" text format.'
-+type: 'Text format'
++++ b/core/recipes/basic_html_format_editor/recipe.yml
+@@ -0,0 +1,7 @@
++name: 'Basic HTML format editor'
++description: 'Provides "Basic HTML" text format along with WYSIWYG editor and related configuration.'
++type: 'Text format editor'
 +install:
++  - ckeditor5
++  - editor
 +  - filter
 diff --git a/core/recipes/comment_comment_type/config/comment.type.comment.yml b/core/recipes/comment_comment_type/config/comment.type.comment.yml
 new file mode 100644
@@ -1366,10 +1475,10 @@ index 0000000000..c5eee2c284
 +custom_storage: false
 diff --git a/core/recipes/comment_comment_type/recipe.yml b/core/recipes/comment_comment_type/recipe.yml
 new file mode 100644
-index 0000000000..a53f318a99
+index 0000000000..6b02655aa7
 --- /dev/null
 +++ b/core/recipes/comment_comment_type/recipe.yml
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,20 @@
 +name: 'Default comments'
 +description: 'Provides "Default comments" comment type and related configuration. Allows commenting on content'
 +type: 'Comment type'
@@ -1378,13 +1487,21 @@ index 0000000000..a53f318a99
 +  - field
 +  - node
 +  - text
++  - views
 +config:
 +  import:
 +    comment:
++      - core.entity_view_mode.comment.full
 +      - field.storage.comment.comment_body
++      - system.action.comment_delete_action
++      - system.action.comment_publish_action
++      - system.action.comment_save_action
++      - system.action.comment_unpublish_action
++      - views.view.comment
++      - views.view.comments_recent
 diff --git a/core/recipes/content_editor_role/config/user.role.content_editor.yml b/core/recipes/content_editor_role/config/user.role.content_editor.yml
 new file mode 100644
-index 0000000000..885c328225
+index 0000000000..f14dc36a91
 --- /dev/null
 +++ b/core/recipes/content_editor_role/config/user.role.content_editor.yml
 @@ -0,0 +1,8 @@
@@ -1392,9 +1509,9 @@ index 0000000000..885c328225
 +status: true
 +dependencies: {  }
 +id: content_editor
-+label: 'Content Editor'
-+weight: 5
-+is_admin: null
++label: 'Content editor'
++weight: 2
++is_admin: false
 +permissions: {  }
 diff --git a/core/recipes/content_editor_role/recipe.yml b/core/recipes/content_editor_role/recipe.yml
 new file mode 100644
@@ -1405,6 +1522,81 @@ index 0000000000..b5139d4866
 +name: 'Content editor role'
 +description: 'Provides "Content editor" user role.'
 +type: 'User role'
+diff --git a/core/recipes/core_recommended_maintenance/recipe.yml b/core/recipes/core_recommended_maintenance/recipe.yml
+new file mode 100644
+index 0000000000..85ad99bd44
+--- /dev/null
++++ b/core/recipes/core_recommended_maintenance/recipe.yml
+@@ -0,0 +1,11 @@
++name: 'Maintenance recipe'
++description: 'Core recommended maintenance related recipe.'
++type: 'Maintenance'
++install:
++  - automated_cron
++  - announcements_feed
++config:
++  actions:
++    automated_cron.settings:
++      simple_config_update:
++        interval: 10800
+diff --git a/core/recipes/core_recommended_performance/recipe.yml b/core/recipes/core_recommended_performance/recipe.yml
+new file mode 100644
+index 0000000000..f5bf8cc00e
+--- /dev/null
++++ b/core/recipes/core_recommended_performance/recipe.yml
+@@ -0,0 +1,7 @@
++name: 'Performance recipe'
++description: 'Core recommended performance related recipe.'
++type: 'Performance'
++install:
++  - page_cache
++  - dynamic_page_cache
++  - big_pipe
+diff --git a/core/recipes/core_recommended_themes/recipe.yml b/core/recipes/core_recommended_themes/recipe.yml
+new file mode 100644
+index 0000000000..1cf7577260
+--- /dev/null
++++ b/core/recipes/core_recommended_themes/recipe.yml
+@@ -0,0 +1,39 @@
++name: 'Recommended themes'
++description: 'Core recommended themes.'
++type: 'Themes'
++install:
++  - olivero
++  - claro
++  - help
++  - search
++  - block
++  - node
++config:
++  import:
++    claro:
++      - block.block.claro_breadcrumbs
++      - block.block.claro_content
++      - block.block.claro_help
++      - block.block.claro_local_actions
++      - block.block.claro_messages
++      - block.block.claro_page_title
++      - block.block.claro_primary_local_tasks
++      - block.block.claro_secondary_local_tasks
++    olivero:
++      - block.block.olivero_account_menu
++      - block.block.olivero_breadcrumbs
++      - block.block.olivero_content
++      - block.block.olivero_help
++      - block.block.olivero_main_menu
++      - block.block.olivero_messages
++      - block.block.olivero_page_title
++      - block.block.olivero_powered
++      - block.block.olivero_primary_admin_actions
++      - block.block.olivero_primary_local_tasks
++      - block.block.olivero_search_form_narrow
++      - block.block.olivero_search_form_wide
++      - block.block.olivero_secondary_local_tasks
++      - block.block.olivero_site_branding
++      - block.block.olivero_syndicate
++      - block_content.type.basic
++      - core.date_format.olivero_medium
 diff --git a/core/recipes/document_media/config/core.entity_form_display.media.document.default.yml b/core/recipes/document_media/config/core.entity_form_display.media.document.default.yml
 new file mode 100644
 index 0000000000..7233f32e06
@@ -1733,10 +1925,10 @@ index 0000000000..e462b2ab95
 +  default_moderation_state: draft
 diff --git a/core/recipes/editorial_workflow/recipe.yml b/core/recipes/editorial_workflow/recipe.yml
 new file mode 100644
-index 0000000000..81a344d1fc
+index 0000000000..5ee7c60d41
 --- /dev/null
 +++ b/core/recipes/editorial_workflow/recipe.yml
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,11 @@
 +name: 'Editorial workflow'
 +description: 'Provides "Editorial" workflow.'
 +type: 'Workflow'
@@ -1746,7 +1938,8 @@ index 0000000000..81a344d1fc
 +  - views
 +config:
 +  import:
-+    content_moderation: '*'
++    content_moderation:
++      - views.view.moderated_content
 diff --git a/core/recipes/example/recipe.yml b/core/recipes/example/recipe.yml
 index 2103651c07..48650f3875 100644
 --- a/core/recipes/example/recipe.yml
@@ -1796,10 +1989,10 @@ index 0000000000..e222ecd4bf
 +redirect: ''
 diff --git a/core/recipes/feedback_contact_form/recipe.yml b/core/recipes/feedback_contact_form/recipe.yml
 new file mode 100644
-index 0000000000..8718febc87
+index 0000000000..1cc5bc868b
 --- /dev/null
 +++ b/core/recipes/feedback_contact_form/recipe.yml
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,9 @@
 +name: 'Website feedback contact form'
 +description: 'Provides a website feedback contact form.'
 +type: 'Contact form'
@@ -1807,12 +2000,13 @@ index 0000000000..8718febc87
 +  - contact
 +config:
 +  import:
-+    contact: '*'
-diff --git a/core/recipes/full_html_editor/config/editor.editor.full_html.yml b/core/recipes/full_html_editor/config/editor.editor.full_html.yml
++    contact:
++      - contact.settings
+diff --git a/core/recipes/full_html_format_editor/config/editor.editor.full_html.yml b/core/recipes/full_html_format_editor/config/editor.editor.full_html.yml
 new file mode 100644
 index 0000000000..a27ed46a5e
 --- /dev/null
-+++ b/core/recipes/full_html_editor/config/editor.editor.full_html.yml
++++ b/core/recipes/full_html_format_editor/config/editor.editor.full_html.yml
 @@ -0,0 +1,102 @@
 +langcode: en
 +status: true
@@ -1916,47 +2110,29 @@ index 0000000000..a27ed46a5e
 +  max_dimensions:
 +    width: 0
 +    height: 0
-diff --git a/core/recipes/full_html_editor/recipe.yml b/core/recipes/full_html_editor/recipe.yml
+diff --git a/core/recipes/full_html_format_editor/config/filter.format.full_html.yml b/core/recipes/full_html_format_editor/config/filter.format.full_html.yml
 new file mode 100644
-index 0000000000..dbe3857e9b
+index 0000000000..a0e616a498
 --- /dev/null
-+++ b/core/recipes/full_html_editor/recipe.yml
-@@ -0,0 +1,22 @@
-+name: 'Full HTML editor'
-+description: 'Provides "Full HTML" text editor.'
-+type: 'Editor'
-+recipes:
-+  - full_html_format
-+install:
-+  - ckeditor5
-+  - editor
-+config:
-+  import:
-+    ckeditor5: '*'
-+    editor: '*'
-+#  actions:
-+#    filter.format.full_html:
-+#      setFilterConfig:
-+#        editor_file_reference:
-+#        -
-+#          id: editor_file_reference
-+#          provider: editor
-+#          status: true
-+#          weight: 11
-+#          settings: {  }
-diff --git a/core/recipes/full_html_format/config/filter.format.full_html.yml b/core/recipes/full_html_format/config/filter.format.full_html.yml
-new file mode 100644
-index 0000000000..b802af1969
---- /dev/null
-+++ b/core/recipes/full_html_format/config/filter.format.full_html.yml
-@@ -0,0 +1,25 @@
++++ b/core/recipes/full_html_format_editor/config/filter.format.full_html.yml
+@@ -0,0 +1,41 @@
 +langcode: en
 +status: true
-+dependencies: {  }
++dependencies:
++  module:
++    - editor
 +name: 'Full HTML'
 +format: full_html
 +weight: 2
++roles:
++  - administrator
 +filters:
++  editor_file_reference:
++    id: editor_file_reference
++    provider: editor
++    status: true
++    weight: 11
++    settings: {  }
 +  filter_align:
 +    id: filter_align
 +    provider: filter
@@ -1975,20 +2151,25 @@ index 0000000000..b802af1969
 +    status: true
 +    weight: 10
 +    settings: {  }
-diff --git a/core/recipes/full_html_format/recipe.yml b/core/recipes/full_html_format/recipe.yml
++  filter_image_lazy_load:
++    id: filter_image_lazy_load
++    provider: filter
++    status: true
++    weight: 15
++    settings: {  }
+diff --git a/core/recipes/full_html_format_editor/recipe.yml b/core/recipes/full_html_format_editor/recipe.yml
 new file mode 100644
-index 0000000000..e98d375956
+index 0000000000..0e76bdc8d3
 --- /dev/null
-+++ b/core/recipes/full_html_format/recipe.yml
-@@ -0,0 +1,8 @@
-+name: 'Full HTML text format'
-+description: 'Provides "Full HTML" text format.'
-+type: 'Text format'
++++ b/core/recipes/full_html_format_editor/recipe.yml
+@@ -0,0 +1,7 @@
++name: 'Full HTML format editor'
++description: 'Provides "Full HTML" text format along with WYSIWYG editor and related configuration.'
++type: 'Text format editor'
 +install:
++  - ckeditor5
++  - editor
 +  - filter
-+config:
-+  import:
-+    filter: '*'
 diff --git a/core/recipes/image_media/config/core.entity_form_display.media.image.default.yml b/core/recipes/image_media/config/core.entity_form_display.media.image.default.yml
 new file mode 100644
 index 0000000000..1d7a19b593
@@ -2503,10 +2684,10 @@ index 0000000000..755e8ed8ce
 +display_submitted: false
 diff --git a/core/recipes/page_content_type/recipe.yml b/core/recipes/page_content_type/recipe.yml
 new file mode 100644
-index 0000000000..648fe12130
+index 0000000000..3ac9a6db17
 --- /dev/null
 +++ b/core/recipes/page_content_type/recipe.yml
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,22 @@
 +name: 'Basic page'
 +description: "Provides Basic page content type and related configuration. Use <em>basic pages</em> for your static content, such as an 'About us' page."
 +type: 'Content type'
@@ -2517,7 +2698,6 @@ index 0000000000..648fe12130
 +  - node
 +  - path
 +  - text
-+  - user
 +config:
 +  import:
 +    node:
@@ -2816,7 +2996,7 @@ index 0000000000..5656b14514
 +      filter_url_length: 72
 diff --git a/core/recipes/restricted_html_format/recipe.yml b/core/recipes/restricted_html_format/recipe.yml
 new file mode 100644
-index 0000000000..8fe7c3762e
+index 0000000000..c499d138e9
 --- /dev/null
 +++ b/core/recipes/restricted_html_format/recipe.yml
 @@ -0,0 +1,8 @@
@@ -2826,8 +3006,8 @@ index 0000000000..8fe7c3762e
 +install:
 +  - filter
 +config:
-+  import:
-+    filter: '*'
++    import:
++      filter: '*'
 diff --git a/core/recipes/standard/composer.json b/core/recipes/standard/composer.json
 new file mode 100644
 index 0000000000..5408c71c0e
@@ -2851,63 +3031,82 @@ index 0000000000..5408c71c0e
 +  
 diff --git a/core/recipes/standard/recipe.yml b/core/recipes/standard/recipe.yml
 new file mode 100644
-index 0000000000..3f5bcf34c2
+index 0000000000..72e61ec401
 --- /dev/null
 +++ b/core/recipes/standard/recipe.yml
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,155 @@
 +name: 'Standard installation profile'
 +description: 'Provides a standard site with commonly used features pre-configured.'
 +type: 'Site'
 +recipes:
 +  - basic_block_type
++  - article_comment
++  - article_tags
 +  - feedback_contact_form
 +  - standard_content_types
 +  - standard_editors
 +  - standard_roles
 +  - user_user_type
++  - restricted_html_format
++  - core_recommended_performance
++  - core_recommended_maintenance
++  - core_recommended_themes
 +install:
-+  - node
 +  - history
-+  - block
-+  - breakpoint
-+  - ckeditor5
 +  - config
-+  - comment
 +  - contextual
-+  - contact
 +  - menu_link_content
 +  - datetime
-+  - block_content
-+  - editor
-+  - help
-+  - image
 +  - menu_ui
 +  - options
-+  - path
-+  - page_cache
-+  - dynamic_page_cache
-+  - big_pipe
-+  - taxonomy
 +  - dblog
-+  - search
-+  - shortcut
 +  - toolbar
 +  - field_ui
-+  - file
-+  - views
 +  - views_ui
-+  - automated_cron
-+  - announcements_feed
-+  - olivero
-+  - claro
 +config:
++  import:
++    block_content:
++      - field.storage.block_content.body
++      - core.entity_view_mode.block_content.full
++      - views.view.block_content
++    node:
++      - core.entity_view_mode.node.full
++      - core.entity_view_mode.node.search_index
++      - core.entity_view_mode.node.search_result
++      - search.page.node_search
++      - system.action.node_delete_action
++      - system.action.node_make_sticky_action
++      - system.action.node_make_unsticky_action
++      - system.action.node_promote_action
++      - system.action.node_publish_action
++      - system.action.node_save_action
++      - system.action.node_unpromote_action
++      - system.action.node_unpublish_action
++      - views.view.archive
++      - views.view.content
++      - views.view.content_recent
++      - views.view.frontpage
++      - views.view.glossary
++    user:
++      - search.page.user_search
++      - views.view.user_admin_people
++      - views.view.who_s_new
++      - views.view.who_s_online
++    shortcut:
++      - shortcut.set.default
++    help:
++      - block.block.claro_help_search
++      - search.page.help_search
++    image:
++      - image.style.large
++    file:
++      - views.view.files
++    dblog:
++      - views.view.watchdog
 +  actions:
-+    automated_cron.settings:
-+      simple_config_update:
-+       interval: 10800
 +    node.settings:
 +      simple_config_update:
-+       use_admin_theme: true
++        use_admin_theme: true
 +    system.cron:
 +      simple_config_update:
 +        threshold:
@@ -2917,11 +3116,80 @@ index 0000000000..3f5bcf34c2
 +    system.site:
 +      simple_config_update:
 +        page:
-+          front: /node
++          front: '/node'
++          403: ''
++          404: ''
 +    system.theme:
 +      simple_config_update:
 +        admin: claro
 +        default: olivero
++    user.role.authenticated:
++      simple_config_update:
++        module:
++          - comment
++          - contact
++          - file
++          - filter
++          - search
++          - shortcut
++        dependencies:
++          config:
++            - filter.format.basic_html
++      grantPermissions:
++        - 'access comments'
++        - 'access shortcuts'
++        - 'access site-wide contact form'
++        - 'delete own files'
++        - 'post comments'
++        - 'search content'
++        - 'skip comment approval'
++        - 'use text format basic_html'
++    user.role.content_editor:
++      simple_config_update:
++        module:
++          - comment
++          - contextual
++          - file
++          - path
++          - system
++          - taxonomy
++          - toolbar
++        dependencies:
++          config:
++            - taxonomy.vocabulary.tags
++      grantPermissions:
++        - 'access administration pages'
++        - 'access content overview'
++        - 'access contextual links'
++        - 'access files overview'
++        - 'access toolbar'
++        - 'administer url aliases'
++        - 'create terms in tags'
++        - 'create url aliases'
++        - 'delete own files'
++        - 'edit own comments'
++        - 'edit terms in tags'
++        - 'revert all revisions'
++        - 'view all revisions'
++        - 'view own unpublished content'
++        - 'view the administration theme'
++    user.role.anonymous:
++      simple_config_update:
++        module:
++          - comment
++          - contact
++          - filter
++          - search
++          - system
++        dependencies:
++          config:
++            - filter.format.restricted_html
++      grantPermissions:
++        - 'access comments'
++        - 'access content'
++        - 'access site-wide contact form'
++        - 'search content'
++        - 'use text format restricted_html'
 diff --git a/core/recipes/standard_content_types/recipe.yml b/core/recipes/standard_content_types/recipe.yml
 new file mode 100644
 index 0000000000..f347df0d0d
@@ -2936,7 +3204,7 @@ index 0000000000..f347df0d0d
 +  - page_content_type
 diff --git a/core/recipes/standard_editors/recipe.yml b/core/recipes/standard_editors/recipe.yml
 new file mode 100644
-index 0000000000..3c1d8876be
+index 0000000000..b19f68672a
 --- /dev/null
 +++ b/core/recipes/standard_editors/recipe.yml
 @@ -0,0 +1,6 @@
@@ -2944,8 +3212,8 @@ index 0000000000..3c1d8876be
 +description: 'Provides a standard set of WYSIWYG editors and accompanying text formats.'
 +type: 'Editor'
 +recipes:
-+  - basic_html_editor
-+  - full_html_editor
++  - basic_html_format_editor
++  - full_html_format_editor
 diff --git a/core/recipes/standard_media_types/recipe.yml b/core/recipes/standard_media_types/recipe.yml
 new file mode 100644
 index 0000000000..52c6754e29
@@ -3113,10 +3381,10 @@ index 0000000000..06cb8a98e8
 +fallback_image_style: max_325x325
 diff --git a/core/recipes/standard_responsive_images/recipe.yml b/core/recipes/standard_responsive_images/recipe.yml
 new file mode 100644
-index 0000000000..4c07deb66e
+index 0000000000..4b23c8fec7
 --- /dev/null
 +++ b/core/recipes/standard_responsive_images/recipe.yml
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,9 @@
 +name: 'Standard Responsive Images'
 +description: 'Provides basic responsive images and accompanying image styles.'
 +type: 'Responsive image'
@@ -3126,7 +3394,6 @@ index 0000000000..4c07deb66e
 +config:
 +  import:
 +    image: '*'
-+    responsive_image: '*'
 diff --git a/core/recipes/standard_roles/recipe.yml b/core/recipes/standard_roles/recipe.yml
 new file mode 100644
 index 0000000000..aefd748b06
@@ -3139,6 +3406,28 @@ index 0000000000..aefd748b06
 +recipes:
 +  - administrator_role
 +  - content_editor_role
+diff --git a/core/recipes/standard_taxonomy/recipe.yml b/core/recipes/standard_taxonomy/recipe.yml
+new file mode 100644
+index 0000000000..b69fce144a
+--- /dev/null
++++ b/core/recipes/standard_taxonomy/recipe.yml
+@@ -0,0 +1,16 @@
++name: 'Standard taxonomy'
++description: 'Provides taxonomy vocabulary and related configuration.'
++type: 'Taxonomy'
++install:
++  - node
++  - taxonomy
++  - views
++config:
++  import:
++    taxonomy:
++      - core.entity_view_mode.taxonomy_term.full
++      - system.action.taxonomy_term_publish_action
++      - system.action.taxonomy_term_unpublish_action
++      - views.view.taxonomy_term
++    node:
++      - core.entity_view_mode.node.teaser
 diff --git a/core/recipes/tags_taxonomy/config/field.storage.node.field_tags.yml b/core/recipes/tags_taxonomy/config/field.storage.node.field_tags.yml
 new file mode 100644
 index 0000000000..73f821f2c0
@@ -3179,17 +3468,15 @@ index 0000000000..4c754e86c7
 +weight: 0
 diff --git a/core/recipes/tags_taxonomy/recipe.yml b/core/recipes/tags_taxonomy/recipe.yml
 new file mode 100644
-index 0000000000..e14f52083b
+index 0000000000..1a1a6e7f70
 --- /dev/null
 +++ b/core/recipes/tags_taxonomy/recipe.yml
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,5 @@
 +name: Tags
 +description: 'Provides "Tags" taxonomy vocabulary and related configuration. Use tags to group content on similar topics into categories.'
 +type: 'Taxonomy'
-+install:
-+  - field
-+  - node
-+  - taxonomy
++recipes:
++  - standard_taxonomy
 diff --git a/core/recipes/user_user_type/config/core.entity_form_display.user.user.default.yml b/core/recipes/user_user_type/config/core.entity_form_display.user.user.default.yml
 new file mode 100644
 index 0000000000..8098d4688a
@@ -3382,10 +3669,10 @@ index 0000000000..6d0476df6c
 +custom_storage: false
 diff --git a/core/recipes/user_user_type/recipe.yml b/core/recipes/user_user_type/recipe.yml
 new file mode 100644
-index 0000000000..1c229273dc
+index 0000000000..25b18ae9b2
 --- /dev/null
 +++ b/core/recipes/user_user_type/recipe.yml
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,17 @@
 +name: User
 +description: 'Provides a basic user type and related configuration.'
 +type: 'User type'
@@ -3393,7 +3680,6 @@ index 0000000000..1c229273dc
 +  - field
 +  - file
 +  - image
-+  - user
 +config:
 +  import:
 +    image:
