@@ -1,19 +1,19 @@
 diff --git a/core/core.services.yml b/core/core.services.yml
-index 72ff560296..32eacfd0a4 100644
+index 447a0f9a18..398bf56627 100644
 --- a/core/core.services.yml
 +++ b/core/core.services.yml
-@@ -65,6 +65,10 @@ parameters:
+@@ -66,6 +66,10 @@ parameters:
  services:
    _defaults:
      autoconfigure: true
 +  plugin.manager.config_action:
 +    class: Drupal\Core\Config\Action\ConfigActionManager
 +    parent: default_plugin_manager
-+    arguments: ['@config.manager']
++    arguments: ['@config.manager', '@config.storage', '@config.typed', '@config.factory']
    # Simple cache contexts, directly derived from the request context.
    cache_context.ip:
      class: Drupal\Core\Cache\Context\IpCacheContext
-@@ -360,6 +364,14 @@ services:
+@@ -384,6 +388,14 @@ services:
      public: false
      tags:
        - { name: backend_overridable }
@@ -144,19 +144,25 @@ index 0000000000..02e5220e34
 +}
 diff --git a/core/lib/Drupal/Core/Config/Action/ConfigActionManager.php b/core/lib/Drupal/Core/Config/Action/ConfigActionManager.php
 new file mode 100644
-index 0000000000..646a014187
+index 0000000000..16911f3348
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Config/Action/ConfigActionManager.php
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,210 @@
 +<?php
 +
 +namespace Drupal\Core\Config\Action;
 +
 +use Drupal\Component\Plugin\PluginBase;
 +use Drupal\Core\Cache\CacheBackendInterface;
++use Drupal\Core\Config\ConfigFactoryInterface;
 +use Drupal\Core\Config\ConfigManagerInterface;
++use Drupal\Core\Config\Schema\Mapping;
++use Drupal\Core\Config\StorageInterface;
++use Drupal\Core\Config\TypedConfigManagerInterface;
 +use Drupal\Core\Extension\ModuleHandlerInterface;
 +use Drupal\Core\Plugin\DefaultPluginManager;
++use Drupal\Core\Recipe\InvalidConfigException;
++use Drupal\Core\Validation\Plugin\Validation\Constraint\FullyValidatableConstraint;
 +
 +/**
 + * @defgroup config_action_api Config Action API
@@ -203,8 +209,22 @@ index 0000000000..646a014187
 +   *   The module handler to invoke the alter hook with.
 +   * @param \Drupal\Core\Config\ConfigManagerInterface $configManager
 +   *   The config manager.
++   * @param \Drupal\Core\Config\StorageInterface $configStorage
++   *   The active config storage.
++   * @param \Drupal\Core\Config\TypedConfigManagerInterface $typedConfig
++   *   The typed configuration manager service.
++   * @param \Drupal\Core\Config\ConfigFactoryInterface $configFactory
++   *   The config factory service.
 +   */
-+  public function __construct(\Traversable $namespaces, CacheBackendInterface $cache_backend, ModuleHandlerInterface $module_handler, protected readonly ConfigManagerInterface $configManager) {
++  public function __construct(
++    \Traversable $namespaces,
++    CacheBackendInterface $cache_backend,
++    ModuleHandlerInterface $module_handler,
++    protected readonly ConfigManagerInterface $configManager,
++    protected readonly StorageInterface $configStorage,
++    protected readonly TypedConfigManagerInterface $typedConfig,
++    protected readonly ConfigFactoryInterface $configFactory,
++  ) {
 +    assert($namespaces instanceof \ArrayAccess, '$namespaces can be accessed like an array');
 +    // Enable this namespace to be searched for plugins.
 +    $namespaces[__NAMESPACE__] = 'core/lib/Drupal/Core/Config/Action';
@@ -242,7 +262,74 @@ index 0000000000..646a014187
 +    }
 +    /** @var \Drupal\Core\Config\Action\ConfigActionPluginInterface $action */
 +    $action = $this->createInstance($action_id);
-+    $action->apply($configName, $data);
++    foreach ($this->getConfigNamesMatchingExpression($configName) as $name) {
++      $action->apply($name, $data);
++      $typed_config = $this->typedConfig->createFromNameAndData($name, $this->configFactory->get($name)->getRawData());
++      // All config objects are mappings.
++      assert($typed_config instanceof Mapping);
++      foreach ($typed_config->getConstraints() as $constraint) {
++        // Only validate the config if it has explicitly been marked as being
++        // validatable.
++        if ($constraint instanceof FullyValidatableConstraint) {
++          /** @var \Symfony\Component\Validator\ConstraintViolationList $violations */
++          $violations = $typed_config->validate();
++          if (count($violations) > 0) {
++            throw new InvalidConfigException($violations, $typed_config);
++          }
++          break;
++        }
++      }
++    }
++  }
++
++  /**
++   * Gets the names of all active config objects that match an expression.
++   *
++   * @param string $expression
++   *   The expression to match. This may be the full name of a config object,
++   *   or it may contain wildcards (to target all config entities of a specific
++   *   type, or a subset thereof). For example:
++   *   - `user.role.*` would target all user roles.
++   *   - `user.role.anonymous` would target only the anonymous user role.
++   *   - `core.entity_view_display.node.*.default` would target the default
++   *     view display of every content type.
++   *   - `core.entity_form_display.*.*.default` would target the default form
++   *     display of every bundle of every entity type.
++   *   The expression MUST begin with the prefix of a config entity type --
++   *   for example, `field.field.` in the case of fields, or `user.role.` for
++   *   user roles. The prefix cannot contain wildcards.
++   *
++   * @return string[]
++   *   The names of all active config objects that match the expression.
++   *
++   * @throws \Drupal\Core\Config\Action\ConfigActionException
++   *   Thrown if the expression does not match any known config entity type's
++   *   prefix, or if the expression cannot be parsed.
++   */
++  private function getConfigNamesMatchingExpression(string $expression): array {
++    // If there are no wildcards, we can return the config name as-is.
++    if (!str_contains($expression, '.*')) {
++      return [$expression];
++    }
++
++    $entity_type = $this->configManager->getEntityTypeIdByName($expression);
++    if (empty($entity_type)) {
++      throw new ConfigActionException("No installed config entity type uses the prefix in the expression '$expression'. Either there is a typo in the expression or this recipe should install an additional module or depend on another recipe.");
++    }
++    /** @var \Drupal\Core\Config\Entity\ConfigEntityTypeInterface $entity_type */
++    $entity_type = $this->configManager->getEntityTypeManager()
++      ->getDefinition($entity_type);
++    $prefix = $entity_type->getConfigPrefix();
++
++    // Convert the expression to a regular expression. We assume that * should
++    // match the characters allowed by
++    // \Drupal\Core\Config\ConfigBase::validateName(), which is permissive.
++    $expression = str_replace('\\*', '[^.:?*<>"\'\/\\\\]+', preg_quote($expression));
++    $matches = @preg_grep("/^$expression$/", $this->configStorage->listAll("$prefix."));
++    if ($matches === FALSE) {
++      throw new ConfigActionException("The expression '$expression' could not be parsed.");
++    }
++    return $matches;
 +  }
 +
 +  /**
@@ -1002,10 +1089,10 @@ index 0000000000..ef60e217c4
 +}
 diff --git a/core/lib/Drupal/Core/Config/Checkpoint/CheckpointStorage.php b/core/lib/Drupal/Core/Config/Checkpoint/CheckpointStorage.php
 new file mode 100644
-index 0000000000..5ec4a5bd5c
+index 0000000000..d67b90224d
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Config/Checkpoint/CheckpointStorage.php
-@@ -0,0 +1,487 @@
+@@ -0,0 +1,492 @@
 +<?php
 +
 +declare(strict_types=1);
@@ -1021,6 +1108,8 @@ index 0000000000..5ec4a5bd5c
 +use Drupal\Core\Config\StorageInterface;
 +use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 +use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
++use Psr\Log\LoggerAwareInterface;
++use Psr\Log\LoggerAwareTrait;
 +use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 +
 +/**
@@ -1035,7 +1124,9 @@ index 0000000000..5ec4a5bd5c
 + * events triggered by the configuration system in order to work. It is the
 + * responsibility of the caller to construct this class with the active storage.
 + */
-+final class CheckpointStorage implements CheckpointStorageInterface, EventSubscriberInterface {
++final class CheckpointStorage implements CheckpointStorageInterface, EventSubscriberInterface, LoggerAwareInterface {
++
++  use LoggerAwareTrait;
 +
 +  /**
 +   * Used as prefix to a config checkpoint collection.
@@ -1274,8 +1365,9 @@ index 0000000000..5ec4a5bd5c
 +        $active_checkpoint = $this->checkpoints->add($id, $label);
 +      }
 +      else {
-+        // @todo https://www.drupal.org/project/distributions_recipes/issues/3408523
-+        //   Decide on the correct behavior here.
++        $this->logger?->notice('A backup checkpoint was not created because nothing has changed since the "{active}" checkpoint was created.', [
++          'active' => $active_checkpoint->label,
++        ]);
 +      }
 +    }
 +    else {
@@ -1725,405 +1817,6 @@ index 0000000000..1d6dd928f2
 + */
 +final class UnknownCheckpointException extends \RuntimeException {
 +}
-diff --git a/core/lib/Drupal/Core/Config/Config.php b/core/lib/Drupal/Core/Config/Config.php
-index abcb41fe7e..9048403a2f 100644
---- a/core/lib/Drupal/Core/Config/Config.php
-+++ b/core/lib/Drupal/Core/Config/Config.php
-@@ -226,7 +226,8 @@ public function save($has_trusted_data = FALSE) {
-       Cache::invalidateTags($this->getCacheTags());
-     }
-     $this->isNew = FALSE;
--    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigEvents::SAVE);
-+    $event_name = $this->getStorage()->getCollectionName() === StorageInterface::DEFAULT_COLLECTION ? ConfigEvents::SAVE : ConfigCollectionEvents::SAVE_IN_COLLECTION;
-+    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), $event_name);
-     $this->originalData = $this->data;
-     return $this;
-   }
-@@ -243,21 +244,12 @@ public function delete() {
-     Cache::invalidateTags($this->getCacheTags());
-     $this->isNew = TRUE;
-     $this->resetOverriddenData();
--    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigEvents::DELETE);
-+    $event_name = $this->getStorage()->getCollectionName() === StorageInterface::DEFAULT_COLLECTION ? ConfigEvents::DELETE : ConfigCollectionEvents::DELETE_IN_COLLECTION;
-+    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), $event_name);
-     $this->originalData = $this->data;
-     return $this;
-   }
- 
--  /**
--   * Gets the raw data without overrides.
--   *
--   * @return array
--   *   The raw data.
--   */
--  public function getRawData() {
--    return $this->data;
--  }
--
-   /**
-    * Gets original data from this configuration object.
-    *
-diff --git a/core/lib/Drupal/Core/Config/ConfigCollectionEvents.php b/core/lib/Drupal/Core/Config/ConfigCollectionEvents.php
-new file mode 100644
-index 0000000000..e965953986
---- /dev/null
-+++ b/core/lib/Drupal/Core/Config/ConfigCollectionEvents.php
-@@ -0,0 +1,105 @@
-+<?php
-+
-+namespace Drupal\Core\Config;
-+
-+/**
-+ * Defines events for working with configuration collections.
-+ *
-+ * Configuration collections are often used to store configuration-related
-+ * data, like overrides. The use case is determined by the module that provides
-+ * the collection. A classic example is to store the translated parts of
-+ * various configuration objects. Using a collection allows this data to be
-+ * imported and exported alongside regular configuration. It also allows the
-+ * data to be created when installing an extension. In both the import/export
-+ * and extension installation situations, collection data is stored in
-+ * subdirectories.
-+ *
-+ * @see \Drupal\Core\Config\ConfigCrudEvent
-+ */
-+final class ConfigCollectionEvents {
-+
-+  /**
-+   * Event dispatched when saving configuration not in the default collection.
-+   *
-+   * This event allows modules to react whenever an object that extends
-+   * \Drupal\Core\Config\StorableConfigBase is saved in a non-default
-+   * collection. The event listener method receives a
-+   * \Drupal\Core\Config\ConfigCrudEvent instance.
-+   *
-+   * Note: this event is not used for configuration in the default collection.
-+   * See \Drupal\Core\Config\ConfigEvents::SAVE instead.
-+   *
-+   * @Event
-+   *
-+   * @var string
-+   *
-+   * @see \Drupal\Core\Config\ConfigCrudEvent
-+   * @see \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject()
-+   * @see \Drupal\language\Config\LanguageConfigOverride::save()
-+   *
-+   * @see \Drupal\Core\Config\ConfigEvents::SAVE
-+   */
-+  const SAVE_IN_COLLECTION = 'config.save.collection';
-+
-+  /**
-+   * Event dispatched when deleting configuration not in the default collection.
-+   *
-+   * This event allows modules to react whenever an object that extends
-+   * \Drupal\Core\Config\StorableConfigBase is deleted in a non-default
-+   * collection. The event listener method receives a
-+   * \Drupal\Core\Config\ConfigCrudEvent instance.
-+   *
-+   * Note: this event is not used for configuration in the default collection.
-+   * See \Drupal\Core\Config\ConfigEvents::DELETE instead.
-+   *
-+   * @Event
-+   *
-+   * @see \Drupal\Core\Config\ConfigEvents::DELETE
-+   * @see \Drupal\Core\Config\ConfigCrudEvent
-+   * @see \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject()
-+   * @see \Drupal\language\Config\LanguageConfigOverride::delete()
-+   *
-+   * @var string
-+   */
-+  const DELETE_IN_COLLECTION = 'config.delete.collection';
-+
-+  /**
-+   * Event dispatched when renaming configuration not in the default collection.
-+   *
-+   * This event allows modules to react whenever an object that extends
-+   * \Drupal\Core\Config\StorableConfigBase is renamed in a non-default
-+   * collection. The event listener method receives a
-+   * \Drupal\Core\Config\ConfigCrudEvent instance.
-+   *
-+   * Note: this event is not used for configuration in the default collection.
-+   * See \Drupal\Core\Config\ConfigEvents::RENAME instead.
-+   *
-+   * @Event
-+   *
-+   * @see \Drupal\Core\Config\ConfigEvents::RENAME
-+   * @see \Drupal\Core\Config\ConfigCrudEvent
-+   * @see \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject()
-+   *
-+   * @var string
-+   */
-+  const RENAME_IN_COLLECTION = 'config.rename.collection';
-+
-+  /**
-+   * Event dispatched to collect information on all config collections.
-+   *
-+   * This event allows modules to add to the list of configuration collections
-+   * retrieved by \Drupal\Core\Config\ConfigManager::getConfigCollectionInfo().
-+   * The event listener method receives a
-+   * \Drupal\Core\Config\ConfigCollectionInfo instance.
-+   *
-+   * @Event
-+   *
-+   * @see \Drupal\Core\Config\ConfigCollectionInfo
-+   * @see \Drupal\Core\Config\ConfigManager::getConfigCollectionInfo()
-+   * @see \Drupal\Core\Config\ConfigFactoryOverrideBase
-+   *
-+   * @var string
-+   */
-+  const COLLECTION_INFO = 'config.collection_info';
-+
-+}
-diff --git a/core/lib/Drupal/Core/Config/ConfigCrudEvent.php b/core/lib/Drupal/Core/Config/ConfigCrudEvent.php
-index 639e3031b4..63048bd753 100644
---- a/core/lib/Drupal/Core/Config/ConfigCrudEvent.php
-+++ b/core/lib/Drupal/Core/Config/ConfigCrudEvent.php
-@@ -19,17 +19,17 @@ class ConfigCrudEvent extends Event {
-   /**
-    * Constructs a configuration event object.
-    *
--   * @param \Drupal\Core\Config\Config $config
-+   * @param \Drupal\Core\Config\StorableConfigBase $config
-    *   Configuration object.
-    */
--  public function __construct(Config $config) {
-+  public function __construct(StorableConfigBase $config) {
-     $this->config = $config;
-   }
- 
-   /**
-    * Gets configuration object.
-    *
--   * @return \Drupal\Core\Config\Config
-+   * @return \Drupal\Core\Config\StorableConfigBase
-    *   The configuration object that caused the event to fire.
-    */
-   public function getConfig() {
-diff --git a/core/lib/Drupal/Core/Config/ConfigEvents.php b/core/lib/Drupal/Core/Config/ConfigEvents.php
-index 8aa2d8d65f..ffb186c299 100644
---- a/core/lib/Drupal/Core/Config/ConfigEvents.php
-+++ b/core/lib/Drupal/Core/Config/ConfigEvents.php
-@@ -140,8 +140,13 @@ final class ConfigEvents {
-    * @see \Drupal\Core\Config\ConfigFactoryOverrideBase
-    *
-    * @var string
-+   *
-+   * @deprecated in drupal:10.3.0 and is removed from drupal:11.0.0. Use
-+   *    \Drupal\Core\Config\ConfigCollectionEvents::COLLECTION_INFO instead.
-+   *
-+   * @see https://www.drupal.org/node/3406105
-    */
--  const COLLECTION_INFO = 'config.collection_info';
-+  const COLLECTION_INFO = ConfigCollectionEvents::COLLECTION_INFO;
- 
-   /**
-    * Name of the event fired just before importing configuration.
-diff --git a/core/lib/Drupal/Core/Config/ConfigFactory.php b/core/lib/Drupal/Core/Config/ConfigFactory.php
-index ef0e22d482..e29c3710cc 100644
---- a/core/lib/Drupal/Core/Config/ConfigFactory.php
-+++ b/core/lib/Drupal/Core/Config/ConfigFactory.php
-@@ -260,7 +260,8 @@ public function rename($old_name, $new_name) {
- 
-     // Prime the cache and load the configuration with the correct overrides.
-     $config = $this->get($new_name);
--    $this->eventDispatcher->dispatch(new ConfigRenameEvent($config, $old_name), ConfigEvents::RENAME);
-+    $event_name = $this->storage->getCollectionName() === StorageInterface::DEFAULT_COLLECTION ? ConfigEvents::RENAME : ConfigCollectionEvents::RENAME_IN_COLLECTION;
-+    $this->eventDispatcher->dispatch(new ConfigRenameEvent($config, $old_name), $event_name);
-     return $this;
-   }
- 
-diff --git a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php
-index c859f7f9fc..ac27578a36 100644
---- a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php
-+++ b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideBase.php
-@@ -10,7 +10,7 @@
- abstract class ConfigFactoryOverrideBase implements EventSubscriberInterface {
- 
-   /**
--   * Reacts to the ConfigEvents::COLLECTION_INFO event.
-+   * Reacts to the ConfigCollectionEvents::COLLECTION_INFO event.
-    *
-    * @param \Drupal\Core\Config\ConfigCollectionInfo $collection_info
-    *   The configuration collection info event.
-@@ -45,7 +45,7 @@ abstract public function onConfigRename(ConfigRenameEvent $event);
-    * {@inheritdoc}
-    */
-   public static function getSubscribedEvents(): array {
--    $events[ConfigEvents::COLLECTION_INFO][] = ['addCollections'];
-+    $events[ConfigCollectionEvents::COLLECTION_INFO][] = ['addCollections'];
-     $events[ConfigEvents::SAVE][] = ['onConfigSave', 20];
-     $events[ConfigEvents::DELETE][] = ['onConfigDelete', 20];
-     $events[ConfigEvents::RENAME][] = ['onConfigRename', 20];
-diff --git a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php
-index 13a78f8369..110b0c91b7 100644
---- a/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php
-+++ b/core/lib/Drupal/Core/Config/ConfigFactoryOverrideInterface.php
-@@ -34,22 +34,32 @@ public function getCacheSuffix();
-    * it can have its own implementation of
-    * \Drupal\Core\Config\StorableConfigBase. Configuration overriders can link
-    * themselves to a configuration collection by listening to the
--   * \Drupal\Core\Config\ConfigEvents::COLLECTION_INFO event and adding the
--   * collections they are responsible for. Doing this will allow installation
--   * and synchronization to use the overrider's implementation of
--   * StorableConfigBase.
-+   * \Drupal\Core\Config\ConfigCollectionEvents::COLLECTION_INFO event and
-+   * adding the collections they are responsible for. Doing this will allow
-+   * installation and synchronization to use the overrider's implementation of
-+   * StorableConfigBase. Additionally, the overrider's implementation should
-+   * trigger the appropriate event:
-+   * - Saving and creating triggers ConfigCollectionEvents::SAVE_IN_COLLECTION.
-+   * - Deleting triggers ConfigCollectionEvents::DELETE_IN_COLLECTION.
-+   * - Renaming triggers ConfigCollectionEvents::RENAME_IN_COLLECTION.
-    *
-    * @see \Drupal\Core\Config\ConfigCollectionInfo
-    * @see \Drupal\Core\Config\ConfigImporter::importConfig()
-    * @see \Drupal\Core\Config\ConfigInstaller::createConfiguration()
-+   * @see \Drupal\Core\Config\ConfigCollectionEvents::SAVE_IN_COLLECTION
-+   * @see \Drupal\Core\Config\ConfigCollectionEvents::DELETE_IN_COLLECTION
-+   * @see \Drupal\Core\Config\ConfigCollectionEvents::RENAME_IN_COLLECTION
-    *
-    * @param string $name
-    *   The configuration object name.
-    * @param string $collection
-    *   The configuration collection.
-    *
--   * @return \Drupal\Core\Config\StorableConfigBase
--   *   The configuration object for the provided name and collection.
-+   * @return \Drupal\Core\Config\StorableConfigBase|null
-+   *   The configuration object for the provided name and collection. NULL
-+   *   should be returned when the overrider does not use configuration
-+   *   collections. For example: a module that provides an overrider to avoid
-+   *   storing API keys in config would not use collections.
-    */
-   public function createConfigObject($name, $collection = StorageInterface::DEFAULT_COLLECTION);
- 
-diff --git a/core/lib/Drupal/Core/Config/ConfigManager.php b/core/lib/Drupal/Core/Config/ConfigManager.php
-index 5db500f2fe..fc49f26bc6 100644
---- a/core/lib/Drupal/Core/Config/ConfigManager.php
-+++ b/core/lib/Drupal/Core/Config/ConfigManager.php
-@@ -220,7 +220,17 @@ public function uninstall($type, $name) {
-     // Remove any matching configuration from collections.
-     foreach ($this->activeStorage->getAllCollectionNames() as $collection) {
-       $collection_storage = $this->activeStorage->createCollection($collection);
--      $collection_storage->deleteAll($name . '.');
-+      $overrider = $this->getConfigCollectionInfo()->getOverrideService($collection);
-+      foreach ($collection_storage->listAll($name . '.') as $config_name) {
-+        if ($overrider) {
-+          $config = $overrider->createConfigObject($config_name, $collection);
-+        }
-+        else {
-+          $config = new Config($config_name, $collection_storage, $this->eventDispatcher, $this->typedConfigManager);
-+        }
-+        $config->initWithData($collection_storage->read($config_name));
-+        $config->delete();
-+      }
-     }
- 
-     $schema_dir = $this->extensionPathResolver->getPath($type, $name) . '/' . InstallStorage::CONFIG_SCHEMA_DIRECTORY;
-@@ -391,7 +401,7 @@ public function getConfigEntitiesToChangeOnDependencyRemoval($type, array $names
-   public function getConfigCollectionInfo() {
-     if (!isset($this->configCollectionInfo)) {
-       $this->configCollectionInfo = new ConfigCollectionInfo();
--      $this->eventDispatcher->dispatch($this->configCollectionInfo, ConfigEvents::COLLECTION_INFO);
-+      $this->eventDispatcher->dispatch($this->configCollectionInfo, ConfigCollectionEvents::COLLECTION_INFO);
-     }
-     return $this->configCollectionInfo;
-   }
-diff --git a/core/lib/Drupal/Core/Config/ConfigRenameEvent.php b/core/lib/Drupal/Core/Config/ConfigRenameEvent.php
-index 8f71559809..ba7441a0fa 100644
---- a/core/lib/Drupal/Core/Config/ConfigRenameEvent.php
-+++ b/core/lib/Drupal/Core/Config/ConfigRenameEvent.php
-@@ -17,12 +17,12 @@ class ConfigRenameEvent extends ConfigCrudEvent {
-   /**
-    * Constructs the config rename event.
-    *
--   * @param \Drupal\Core\Config\Config $config
-+   * @param \Drupal\Core\Config\StorableConfigBase $config
-    *   The configuration that has been renamed.
-    * @param string $old_name
-    *   The old configuration object name.
-    */
--  public function __construct(Config $config, $old_name) {
-+  public function __construct(StorableConfigBase $config, $old_name) {
-     $this->config = $config;
-     $this->oldName = $old_name;
-   }
-diff --git a/core/lib/Drupal/Core/Config/StorableConfigBase.php b/core/lib/Drupal/Core/Config/StorableConfigBase.php
-index ae521919d0..750f8f4f5e 100644
---- a/core/lib/Drupal/Core/Config/StorableConfigBase.php
-+++ b/core/lib/Drupal/Core/Config/StorableConfigBase.php
-@@ -2,6 +2,7 @@
- 
- namespace Drupal\Core\Config;
- 
-+use Drupal\Component\Utility\NestedArray;
- use Drupal\Core\Config\Schema\Ignore;
- use Drupal\Core\Config\Schema\Mapping;
- use Drupal\Core\Config\Schema\Sequence;
-@@ -121,6 +122,47 @@ public function getStorage() {
-     return $this->storage;
-   }
- 
-+  /**
-+   * Gets original data from this configuration object.
-+   *
-+   * Original data is the data as it is immediately after loading from
-+   * configuration storage before any changes. If this is a new configuration
-+   * object it will be an empty array.
-+   *
-+   * @see \Drupal\Core\Config\Config::get()
-+   *
-+   * @param string $key
-+   *   A string that maps to a key within the configuration data.
-+   *
-+   * @return mixed
-+   *   The data that was requested.
-+   */
-+  public function getOriginal($key = '') {
-+    $original_data = $this->originalData;
-+
-+    if (empty($key)) {
-+      return $original_data;
-+    }
-+
-+    $parts = explode('.', $key);
-+    if (count($parts) == 1) {
-+      return $original_data[$key] ?? NULL;
-+    }
-+
-+    $value = NestedArray::getValue($original_data, $parts, $key_exists);
-+    return $key_exists ? $value : NULL;
-+  }
-+
-+  /**
-+   * Gets the raw data without any manipulations.
-+   *
-+   * @return array
-+   *   The raw data.
-+   */
-+  public function getRawData() {
-+    return $this->data;
-+  }
-+
-   /**
-    * Gets the schema wrapper for the whole configuration object.
-    *
-diff --git a/core/lib/Drupal/Core/Config/StorageInterface.php b/core/lib/Drupal/Core/Config/StorageInterface.php
-index b2e6d4abb0..9a2908cfc7 100644
---- a/core/lib/Drupal/Core/Config/StorageInterface.php
-+++ b/core/lib/Drupal/Core/Config/StorageInterface.php
-@@ -7,6 +7,11 @@
-  *
-  * Classes implementing this interface allow reading and writing configuration
-  * data from and to the storage.
-+ *
-+ * Note: this should never be used directly to work with active configuration.
-+ * The values returned from it do not have the expected overrides and writing
-+ * directly to the storage does not trigger configuration events. Use the
-+ * 'config.factory' service and the configuration objects it provides.
-  */
- interface StorageInterface {
- 
 diff --git a/core/lib/Drupal/Core/Entity/EntityDisplayBase.php b/core/lib/Drupal/Core/Entity/EntityDisplayBase.php
 index 768835903f..4951ef32d7 100644
 --- a/core/lib/Drupal/Core/Entity/EntityDisplayBase.php
@@ -2149,12 +1842,37 @@ index 768835903f..4951ef32d7 100644
    public function setComponent($name, array $options = []) {
      // If no weight specified, make sure the field sinks at the bottom.
      if (!isset($options['weight'])) {
+diff --git a/core/lib/Drupal/Core/Field/FieldConfigBase.php b/core/lib/Drupal/Core/Field/FieldConfigBase.php
+index ca9a5b5285..610977ec2d 100644
+--- a/core/lib/Drupal/Core/Field/FieldConfigBase.php
++++ b/core/lib/Drupal/Core/Field/FieldConfigBase.php
+@@ -2,10 +2,12 @@
+ 
+ namespace Drupal\Core\Field;
+ 
++use Drupal\Core\Config\Action\Attribute\ActionMethod;
+ use Drupal\Core\Config\Entity\ConfigEntityBase;
+ use Drupal\Core\Entity\EntityStorageInterface;
+ use Drupal\Core\Entity\FieldableEntityInterface;
+ use Drupal\Core\Field\TypedData\FieldItemDataDefinition;
++use Drupal\Core\StringTranslation\TranslatableMarkup;
+ 
+ /**
+  * Base class for configurable field definitions.
+@@ -327,6 +329,7 @@ public function getLabel() {
+   /**
+    * {@inheritdoc}
+    */
++  #[ActionMethod(adminLabel: new TranslatableMarkup('Change field label'))]
+   public function setLabel($label) {
+     $this->label = $label;
+     return $this;
 diff --git a/core/lib/Drupal/Core/Recipe/ConfigConfigurator.php b/core/lib/Drupal/Core/Recipe/ConfigConfigurator.php
 new file mode 100644
-index 0000000000..a8f3f02552
+index 0000000000..4391d360f9
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Recipe/ConfigConfigurator.php
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,106 @@
 +<?php
 +
 +namespace Drupal\Core\Recipe;
@@ -2179,8 +1897,6 @@ index 0000000000..a8f3f02552
 +   *   The active configuration storage.
 +   */
 +  public function __construct(public readonly array $config, string $recipe_directory, StorageInterface $active_configuration) {
-+    // @todo validate structure of $config['import'] and $config['actions'].
-+
 +    $this->recipeConfigDirectory = is_dir($recipe_directory . '/config') ? $recipe_directory . '/config' : NULL;
 +    $recipe_storage = $this->getConfigStorage();
 +    foreach ($recipe_storage->listAll() as $config_name) {
@@ -2190,9 +1906,36 @@ index 0000000000..a8f3f02552
 +        if (empty($active_data['dependencies'])) {
 +          unset($active_data['dependencies']);
 +        }
-+        if ($active_data !== $recipe_storage->read($config_name)) {
++        $recipe_data = $recipe_storage->read($config_name);
++        // Ensure we don't get a false mismatch due to differing key order.
++        // @todo When https://www.drupal.org/project/drupal/issues/3230826 is
++        //   fixed in core, use that API instead to sort the config data.
++        self::recursiveSortByKey($active_data);
++        self::recursiveSortByKey($recipe_data);
++        if ($active_data !== $recipe_data) {
 +          throw new RecipePreExistingConfigException($config_name, sprintf("The configuration '%s' exists already and does not match the recipe's configuration", $config_name));
 +        }
++      }
++    }
++  }
++
++  /**
++   * Sorts an array recursively, by key, alphabetically.
++   *
++   * @param mixed[] $data
++   *   The array to sort, passed by reference.
++   *
++   * @todo Remove when https://www.drupal.org/project/drupal/issues/3230826 is
++   *   fixed in core.
++   */
++  private static function recursiveSortByKey(array &$data): void {
++    // If the array is a list, it is by definition already sorted.
++    if (!array_is_list($data)) {
++      ksort($data);
++    }
++    foreach ($data as &$value) {
++      if (is_array($value)) {
++        self::recursiveSortByKey($value);
 +      }
 +    }
 +  }
@@ -2217,12 +1960,17 @@ index 0000000000..a8f3f02552
 +      /** @var \Drupal\Core\Extension\ThemeExtensionList $theme_list */
 +      $theme_list = \Drupal::service('extension.list.theme');
 +      foreach ($this->config['import'] as $extension => $config) {
++        // If the recipe explicitly does not want to import any config from this
++        // extension, skip it.
++        if ($config === NULL) {
++          continue;
++        }
 +        $path = match (TRUE) {
 +          $module_list->exists($extension) => $module_list->getPath($extension),
 +          $theme_list->exists($extension) => $theme_list->getPath($extension),
 +          default => throw new \RuntimeException("$extension is not a theme or module")
 +        };
-+        $config = (array) ($config === '*' ? NULL : $config);
++        $config = $config === '*' ? [] : $config;
 +        $storages[] = new RecipeExtensionConfigStorage($path, $config);
 +      }
 +    }
@@ -2382,17 +2130,98 @@ index 0000000000..2fd2059e5b
 +  }
 +
 +}
+diff --git a/core/lib/Drupal/Core/Recipe/InvalidConfigException.php b/core/lib/Drupal/Core/Recipe/InvalidConfigException.php
+new file mode 100644
+index 0000000000..cbf61a3de6
+--- /dev/null
++++ b/core/lib/Drupal/Core/Recipe/InvalidConfigException.php
+@@ -0,0 +1,57 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Drupal\Core\Recipe;
++
++use Drupal\Core\Config\Schema\Mapping;
++use Symfony\Component\Validator\ConstraintViolationList;
++
++/**
++ * Thrown if config created or changed by a recipe fails validation.
++ */
++final class InvalidConfigException extends \RuntimeException {
++
++  /**
++   * Constructs an InvalidConfigException object.
++   *
++   * @param \Symfony\Component\Validator\ConstraintViolationList $violations
++   *   The validation constraint violations.
++   * @param \Drupal\Core\Config\Schema\Mapping $data
++   *   A typed data wrapper around the invalid config data.
++   * @param string $message
++   *   (optional) The exception message. Defaults to the string representation
++   *   of the constraint violation list.
++   * @param int $code
++   *   (optional) The exception code. Defaults to 0.
++   * @param \Throwable|null $previous
++   *   (optional) The previous exception, if any.
++   */
++  public function __construct(
++    public readonly ConstraintViolationList $violations,
++    public readonly Mapping $data,
++    string $message = '',
++    int $code = 0,
++    ?\Throwable $previous = NULL,
++  ) {
++    parent::__construct($message ?: $this->formatMessage(), $code, $previous);
++  }
++
++  /**
++   * Formats the constraint violation list as a human-readable message.
++   *
++   * @return string
++   *   The formatted message.
++   */
++  private function formatMessage(): string {
++    $lines = [
++      sprintf('There were validation errors in %s:', $this->data->getName()),
++    ];
++    /** @var \Symfony\Component\Validator\ConstraintViolationInterface $violation */
++    foreach ($this->violations as $violation) {
++      $lines[] = sprintf('- %s: %s', $violation->getPropertyPath(), $violation->getMessage());
++    }
++    return implode("\n", $lines);
++  }
++
++}
 diff --git a/core/lib/Drupal/Core/Recipe/Recipe.php b/core/lib/Drupal/Core/Recipe/Recipe.php
 new file mode 100644
-index 0000000000..ed35e1887d
+index 0000000000..924ade4f7b
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Recipe/Recipe.php
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,249 @@
 +<?php
 +
 +namespace Drupal\Core\Recipe;
 +
-+use Drupal\Core\Serialization\Yaml;
++use Drupal\Core\Extension\Dependency;
++use Drupal\Core\Extension\ModuleExtensionList;
++use Drupal\Core\Extension\ThemeExtensionList;
++use Drupal\Component\Serialization\Yaml;
++use Drupal\Core\Validation\Plugin\Validation\Constraint\RegexConstraint;
++use Symfony\Component\Validator\Constraints\All;
++use Symfony\Component\Validator\Constraints\AtLeastOneOf;
++use Symfony\Component\Validator\Constraints\Callback;
++use Symfony\Component\Validator\Constraints\Collection;
++use Symfony\Component\Validator\Constraints\IdenticalTo;
++use Symfony\Component\Validator\Constraints\NotBlank;
++use Symfony\Component\Validator\Constraints\NotIdenticalTo;
++use Symfony\Component\Validator\Constraints\Optional;
++use Symfony\Component\Validator\Constraints\Regex;
++use Symfony\Component\Validator\Constraints\Required;
++use Symfony\Component\Validator\Constraints\Sequentially;
++use Symfony\Component\Validator\Constraints\Type;
++use Symfony\Component\Validator\Context\ExecutionContextInterface;
++use Symfony\Component\Validator\Validation;
 +
 +/**
 + * @internal
@@ -2423,18 +2252,131 @@ index 0000000000..ed35e1887d
 +   *   The Recipe object.
 +   */
 +  public static function createFromDirectory(string $path): static {
-+    if (!is_readable($path . '/recipe.yml')) {
-+      throw new RecipeFileException("There is no $path/recipe.yml file");
++    $recipe_data = self::parse($path . '/recipe.yml');
++
++    $recipe_discovery = static::getRecipeDiscovery(dirname($path));
++    $recipes = new RecipeConfigurator(is_array($recipe_data['recipes']) ? $recipe_data['recipes'] : [], $recipe_discovery);
++    $install = new InstallConfigurator($recipe_data['install'], \Drupal::service('extension.list.module'), \Drupal::service('extension.list.theme'));
++    $config = new ConfigConfigurator($recipe_data['config'], $path, \Drupal::service('config.storage'));
++    $content = new ContentConfigurator($recipe_data['content']);
++    return new static($recipe_data['name'], $recipe_data['description'], $recipe_data['type'], $recipes, $install, $config, $content);
++  }
++
++  /**
++   * Parses and validates a recipe.yml file.
++   *
++   * @param string $file
++   *   The path of a recipe.yml file.
++   *
++   * @return mixed[]
++   *   The parsed and validated data from the file.
++   *
++   * @throws \Drupal\Core\Recipe\RecipeFileException
++   *   Thrown if the recipe.yml file is unreadable, invalid, or cannot be
++   *   validated.
++   */
++  private static function parse(string $file): array {
++    if (!file_exists($file)) {
++      throw new RecipeFileException($file, "There is no $file file");
++    }
++    $recipe_contents = file_get_contents($file);
++    if (!$recipe_contents) {
++      throw new RecipeFileException($file, "$file does not exist or could not be read.");
 +    }
 +
-+    $recipe_contents = file_get_contents($path . '/recipe.yml');
-+    if (!$recipe_contents) {
-+      throw new RecipeFileException("$path/recipe.yml cannot be read");
-+    }
++    $constraints = new Collection([
++      'name' => new Required([
++        new Type('string'),
++        new NotBlank(),
++        // Matching `type: label` in core.data_types.schema.yml.
++        new RegexConstraint(
++          pattern: '/([^\PC])/u',
++          message: 'Recipe names cannot span multiple lines or contain control characters.',
++          match: FALSE,
++        ),
++      ]),
++      'description' => new Optional([
++        new NotBlank(),
++        // Matching `type: text` in core.data_types.schema.yml.
++        new RegexConstraint(
++          pattern: '/([^\PC\x09\x0a\x0d])/u',
++          message: 'The recipe description cannot contain control characters, only visible characters.',
++          match: FALSE,
++        ),
++      ]),
++      'type' => new Optional([
++        new Type('string'),
++        new NotBlank(),
++        // Matching `type: label` in core.data_types.schema.yml.
++        new RegexConstraint(
++          pattern: '/([^\PC])/u',
++          message: 'Recipe type cannot span multiple lines or contain control characters.',
++          match: FALSE,
++        ),
++      ]),
++      'recipes' => new Optional([
++        new All([
++          new Type('string'),
++          new NotBlank(),
++          // If recipe depends on itself, ::validateRecipeExists() will set off
++          // an infinite loop. We can avoid that by skipping that validation if
++          // the recipe depends on itself, which is what Sequentially does.
++          new Sequentially([
++            new NotIdenticalTo(
++              value: basename(dirname($file)),
++              message: 'The {{ compared_value }} recipe cannot depend on itself.',
++            ),
++            new Callback(
++              callback: self::validateRecipeExists(...),
++              payload: dirname(dirname($file))
++            ),
++          ]),
++        ]),
++      ]),
++      // @todo Validate the corresponding `import` in https://www.drupal.org/project/distributions_recipes/issues/3424603
++      'install' => new Optional([
++        new All([
++          new Type('string'),
++          new NotBlank(),
++          new Callback(self::validateExtensionIsAvailable(...)),
++        ]),
++      ]),
++      'config' => new Optional([
++        new Collection([
++          // Each entry in the `import` list can either be `*` (import all of
++          // the extension's config), or a list of config names to import from
++          // the extension.
++          // @todo Validate config file name, if given.
++          'import' => new Optional([
++            new All([
++              new AtLeastOneOf([
++                new IdenticalTo('*'),
++                new All([
++                  new Type('string'),
++                  new NotBlank(),
++                  new Regex('/^.+\./'),
++                ]),
++              ]),
++            ]),
++          ]),
++          'actions' => new Optional([
++            new All([
++              new Type('array'),
++              new NotBlank(),
++            ]),
++          ]),
++        ]),
++      ]),
++      'content' => new Optional([
++        new Type('array'),
++      ]),
++    ]);
++
 +    $recipe_data = Yaml::decode($recipe_contents);
-+    // @todo Do we need to improve validation?
-+    if (!is_array($recipe_data)) {
-+      throw new RecipeFileException("$path/recipe.yml is invalid");
++    /** @var \Symfony\Component\Validator\ConstraintViolationList $violations */
++    $violations = Validation::createValidator()->validate($recipe_data, $constraints);
++    if (count($violations) > 0) {
++      throw RecipeFileException::fromViolationList($file, $violations);
 +    }
 +    $recipe_data += [
 +      'description' => '',
@@ -2444,35 +2386,89 @@ index 0000000000..ed35e1887d
 +      'config' => [],
 +      'content' => [],
 +    ];
++    return $recipe_data;
++  }
 +
-+    if (!isset($recipe_data['name'])) {
-+      throw new RecipeFileException("The $path/recipe.yml has no name value.");
++  /**
++   * Validates that the value is an available module/theme (installed or not).
++   *
++   * @param string $value
++   *   The value to validate.
++   * @param \Symfony\Component\Validator\Context\ExecutionContextInterface $context
++   *   The validator execution context.
++   *
++   * @see \Drupal\Core\Extension\ExtensionList::getAllAvailableInfo()
++   */
++  private static function validateExtensionIsAvailable(string $value, ExecutionContextInterface $context): void {
++    if (empty($value)) {
++      return;
 +    }
 +
-+    $recipe_discovery = new RecipeDiscovery([dirname($path)]);
-+    $recipes = new RecipeConfigurator($recipe_data['recipes'], $recipe_discovery);
-+    $install = new InstallConfigurator($recipe_data['install'], \Drupal::service('extension.list.module'), \Drupal::service('extension.list.theme'));
-+    $config = new ConfigConfigurator($recipe_data['config'], $path, \Drupal::service('config.storage'));
-+    $content = new ContentConfigurator($recipe_data['content']);
-+    return new static($recipe_data['name'], $recipe_data['description'], $recipe_data['type'], $recipes, $install, $config, $content);
++    $name = Dependency::createFromString($value)->getName();
++    $all_available = \Drupal::service(ModuleExtensionList::class)->getAllAvailableInfo() + \Drupal::service(ThemeExtensionList::class)->getAllAvailableInfo();
++    if (!array_key_exists($name, $all_available)) {
++      $context->addViolation('"%extension" is not a known module or theme.', [
++        '%extension' => $name,
++      ]);
++    }
++  }
++
++  /**
++   * Validates that a recipe exists.
++   *
++   * @param string $name
++   *   The machine name of the recipe to look for.
++   * @param \Symfony\Component\Validator\Context\ExecutionContextInterface $context
++   *   The validator execution context.
++   * @param string $recipeDirectory
++   *   The directory the contains the recipe being validated.
++   */
++  private static function validateRecipeExists(string $name, ExecutionContextInterface $context, string $recipeDirectory): void {
++    if (empty($name)) {
++      return;
++    }
++    try {
++      static::getRecipeDiscovery($recipeDirectory)->getRecipe($name);
++    }
++    catch (UnknownRecipeException) {
++      $context->addViolation('The %name recipe does not exist.', ['%name' => $name]);
++    }
++  }
++
++  /**
++   * Gets the recipe discovery object for a recipe.
++   *
++   * @param string $recipeDirectory
++   *   The directory the contains the recipe.
++   *
++   * @return \Drupal\Core\Recipe\RecipeDiscovery
++   */
++  private static function getRecipeDiscovery(string $recipeDirectory): RecipeDiscovery {
++    return new RecipeDiscovery([$recipeDirectory]);
 +  }
 +
 +}
 diff --git a/core/lib/Drupal/Core/Recipe/RecipeCommand.php b/core/lib/Drupal/Core/Recipe/RecipeCommand.php
 new file mode 100644
-index 0000000000..d58cf81284
+index 0000000000..120d40e77a
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Recipe/RecipeCommand.php
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,162 @@
 +<?php
 +
 +namespace Drupal\Core\Recipe;
 +
++use Drupal\Core\Config\Checkpoint\Checkpoint;
++use Drupal\Core\Config\ConfigImporter;
++use Drupal\Core\Config\StorageComparer;
 +use Drupal\Core\DrupalKernel;
 +use Drupal\Core\Site\Settings;
++use Psr\Log\LoggerAwareInterface;
++use Psr\Log\LogLevel;
 +use Symfony\Component\Console\Command\Command;
 +use Symfony\Component\Console\Input\InputArgument;
 +use Symfony\Component\Console\Input\InputInterface;
++use Symfony\Component\Console\Logger\ConsoleLogger;
 +use Symfony\Component\Console\Output\OutputInterface;
 +use Symfony\Component\Console\Style\SymfonyStyle;
 +use Symfony\Component\HttpFoundation\Request;
@@ -2527,14 +2523,64 @@ index 0000000000..d58cf81284
 +    if (!is_string($recipe_path) || !is_dir($recipe_path)) {
 +      $io->error(sprintf('The supplied path %s is not a directory', $recipe_path));
 +    }
++    // Recipes can only be applied to an already-installed site.
++    $container = $this->boot()->getContainer();
 +
-+    // Recipes have to be applied to installed sites.
-+    $this->boot();
-+
++    /** @var \Drupal\Core\Config\Checkpoint\CheckpointStorageInterface $checkpoint_storage */
++    $checkpoint_storage = $container->get('config.storage.checkpoint');
 +    $recipe = Recipe::createFromDirectory($recipe_path);
-+    RecipeRunner::processRecipe($recipe);
-+    $io->success(sprintf('%s applied successfully', $recipe->name));
-+    return 0;
++    if ($checkpoint_storage instanceof LoggerAwareInterface) {
++      $logger = new ConsoleLogger($output, [
++        // The checkpoint storage logs a notice if it decides to not create a
++        // checkpoint, and we want to be sure those notices are seen even
++        // without additional verbosity.
++        LogLevel::NOTICE => OutputInterface::VERBOSITY_NORMAL,
++      ]);
++      $checkpoint_storage->setLogger($logger);
++    }
++    $backup_checkpoint = $checkpoint_storage
++      ->checkpoint("Backup before the '$recipe->name' recipe.");
++    try {
++      RecipeRunner::processRecipe($recipe);
++      $io->success(sprintf('%s applied successfully', $recipe->name));
++      return 0;
++    }
++    catch (InvalidConfigException $e) {
++      $this->rollBackToCheckpoint($backup_checkpoint);
++      throw $e;
++    }
++  }
++
++  /**
++   * Rolls config back to a particular checkpoint.
++   *
++   * @param \Drupal\Core\Config\Checkpoint\Checkpoint $checkpoint
++   *   The checkpoint to roll back to.
++   */
++  private function rollBackToCheckpoint(Checkpoint $checkpoint): void {
++    $container = \Drupal::getContainer();
++
++    /** @var \Drupal\Core\Config\Checkpoint\CheckpointStorageInterface $checkpoint_storage */
++    $checkpoint_storage = $container->get('config.storage.checkpoint');
++    $checkpoint_storage->setCheckpointToReadFrom($checkpoint);
++
++    $storage_comparer = new StorageComparer($checkpoint_storage, $container->get('config.storage'));
++    $storage_comparer->reset();
++
++    $config_importer = new ConfigImporter(
++      $storage_comparer,
++      $container->get('event_dispatcher'),
++      $container->get('config.manager'),
++      $container->get('lock'),
++      $container->get('config.typed'),
++      $container->get('module_handler'),
++      $container->get('module_installer'),
++      $container->get('theme_handler'),
++      $container->get('string_translation'),
++      $container->get('extension.list.module'),
++      $container->get('extension.list.theme'),
++    );
++    $config_importer->import();
 +  }
 +
 +  /**
@@ -2553,7 +2599,6 @@ index 0000000000..d58cf81284
 +    Settings::initialize($kernel->getAppRoot(), $kernel->getSitePath(), $this->classLoader);
 +    $kernel->boot();
 +    $kernel->preHandle(Request::createFromGlobals());
-+
 +    return $kernel;
 +  }
 +
@@ -2573,10 +2618,10 @@ index 0000000000..d58cf81284
 +}
 diff --git a/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php b/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
 new file mode 100644
-index 0000000000..70d6308d22
+index 0000000000..db025a51e1
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Recipe/RecipeConfigInstaller.php
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,73 @@
 +<?php
 +
 +namespace Drupal\Core\Recipe;
@@ -2584,6 +2629,7 @@ index 0000000000..70d6308d22
 +use Drupal\Core\Config\ConfigInstaller;
 +use Drupal\Core\Config\Entity\ConfigDependencyManager;
 +use Drupal\Core\Config\StorageInterface;
++use Drupal\Core\Validation\Plugin\Validation\Constraint\FullyValidatableConstraint;
 +
 +/**
 + * Extends the ConfigInstaller service for recipes.
@@ -2602,7 +2648,6 @@ index 0000000000..70d6308d22
 +    // Build the list of possible configuration to create.
 +    $list = $storage->listAll();
 +
-+    $enabled_extensions = $this->getEnabledExtensions();
 +    $existing_config = $this->getActiveStorages()->listAll();
 +
 +    // Filter the list of configuration to only include configuration that
@@ -2618,8 +2663,6 @@ index 0000000000..70d6308d22
 +      return;
 +    }
 +
-+    $all_config = array_merge($existing_config, $list);
-+    $all_config = array_combine($all_config, $all_config);
 +    $config_to_create = $storage->readMultiple($list);
 +
 +    // Sort $config_to_create in the order of the least dependent first.
@@ -2627,15 +2670,27 @@ index 0000000000..70d6308d22
 +    $dependency_manager->setData($config_to_create);
 +    $config_to_create = array_merge(array_flip($dependency_manager->sortAll()), $config_to_create);
 +
-+    foreach ($config_to_create as $config_name => $data) {
-+      if (!$this->validateDependencies($config_name, $data, $enabled_extensions, $all_config)) {
-+        throw new RecipeUnmetDependenciesException($config_name, sprintf("The configuration '%s' has unmet dependencies", $config_name));
-+      }
-+    }
-+
 +    // Create the optional configuration if there is any left after filtering.
 +    if (!empty($config_to_create)) {
 +      $this->createConfiguration(StorageInterface::DEFAULT_COLLECTION, $config_to_create);
++    }
++
++    foreach (array_keys($config_to_create) as $name) {
++      // All config objects are mappings.
++      /** @var \Drupal\Core\Config\Schema\Mapping $typed_config */
++      $typed_config = $this->typedConfig->createFromNameAndData($name, $this->configFactory->get($name)->getRawData());
++      foreach ($typed_config->getConstraints() as $constraint) {
++        // Only validate the config if it has explicitly been marked as being
++        // validatable.
++        if ($constraint instanceof FullyValidatableConstraint) {
++          /** @var \Symfony\Component\Validator\ConstraintViolationList $violations */
++          $violations = $typed_config->validate();
++          if (count($violations) > 0) {
++            throw new InvalidConfigException($violations, $typed_config);
++          }
++          break;
++        }
++      }
 +    }
 +  }
 +
@@ -2834,10 +2889,10 @@ index 0000000000..f541675e36
 +}
 diff --git a/core/lib/Drupal/Core/Recipe/RecipeDiscovery.php b/core/lib/Drupal/Core/Recipe/RecipeDiscovery.php
 new file mode 100644
-index 0000000000..a83025bb4d
+index 0000000000..68310b3e73
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Recipe/RecipeDiscovery.php
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,51 @@
 +<?php
 +
 +namespace Drupal\Core\Recipe;
@@ -2875,12 +2930,17 @@ index 0000000000..a83025bb4d
 +   *   Thrown when the recipe cannot be found.
 +   */
 +  public function getRecipe(string $name): Recipe {
-+    foreach ($this->paths as $path) {
++    $paths = [
++      ...$this->paths,
++      DRUPAL_ROOT . '/recipes',
++      DRUPAL_ROOT . '/core/recipes',
++    ];
++    foreach ($paths as $path) {
 +      if (file_exists($path . DIRECTORY_SEPARATOR . $name . DIRECTORY_SEPARATOR . 'recipe.yml')) {
 +        return Recipe::createFromDirectory($path . DIRECTORY_SEPARATOR . $name);
 +      }
 +    }
-+    throw new UnknownRecipeException($name, $this->paths, sprintf("Can not find the %s recipe, search paths: %s", $name, implode(', ', $this->paths)));
++    throw new UnknownRecipeException($name, $paths, sprintf("Can not find the %s recipe, search paths: %s", $name, implode(', ', $paths)));
 +  }
 +
 +}
@@ -3036,19 +3096,65 @@ index 0000000000..4dfaf80d3e
 +}
 diff --git a/core/lib/Drupal/Core/Recipe/RecipeFileException.php b/core/lib/Drupal/Core/Recipe/RecipeFileException.php
 new file mode 100644
-index 0000000000..e3f6cffccf
+index 0000000000..bc7b9766fc
 --- /dev/null
 +++ b/core/lib/Drupal/Core/Recipe/RecipeFileException.php
-@@ -0,0 +1,11 @@
+@@ -0,0 +1,57 @@
 +<?php
 +
 +namespace Drupal\Core\Recipe;
++
++use Symfony\Component\Validator\ConstraintViolationList;
 +
 +/**
 + * @internal
 + *   This API is experimental.
 + */
 +final class RecipeFileException extends \RuntimeException {
++
++  /**
++   * Constructs a RecipeFileException object.
++   *
++   * @param string $path
++   *   The path of the offending recipe file.
++   * @param string $message
++   *   (optional) The exception message.
++   * @param \Symfony\Component\Validator\ConstraintViolationList|null $violations
++   *   (optional) A list of validation constraint violations in the recipe file,
++   *   if any.
++   * @param int $code
++   *   (optional) The exception code.
++   * @param \Throwable|null $previous
++   *   (optional) The previous exception, if any.
++   */
++  public function __construct(
++    public readonly string $path,
++    string $message = '',
++    public readonly ?ConstraintViolationList $violations = NULL,
++    int $code = 0,
++    \Throwable $previous = NULL,
++  ) {
++    parent::__construct($message, $code, $previous);
++  }
++
++  /**
++   * Creates an instance of this exception from a set of validation errors.
++   *
++   * @param string $path
++   *   The path of the offending recipe file.
++   * @param \Symfony\Component\Validator\ConstraintViolationList $violations
++   *   The list of validation constraint violations.
++   *
++   * @return static
++   */
++  public static function fromViolationList(string $path, ConstraintViolationList $violations): static {
++    $lines = ["Validation errors were found in $path:"];
++
++    foreach ($violations as $violation) {
++      $lines[] = sprintf('- %s: %s', $violation->getPropertyPath(), $violation->getMessage());
++    }
++    return new static($path, implode("\n", $lines), $violations);
++  }
 +
 +}
 diff --git a/core/lib/Drupal/Core/Recipe/RecipeMissingExtensionsException.php b/core/lib/Drupal/Core/Recipe/RecipeMissingExtensionsException.php
@@ -3393,41 +3499,6 @@ index 0000000000..5670c1f871
 +  }
 +
 +}
-diff --git a/core/lib/Drupal/Core/Recipe/RecipeUnmetDependenciesException.php b/core/lib/Drupal/Core/Recipe/RecipeUnmetDependenciesException.php
-new file mode 100644
-index 0000000000..71fcdc6b2a
---- /dev/null
-+++ b/core/lib/Drupal/Core/Recipe/RecipeUnmetDependenciesException.php
-@@ -0,0 +1,29 @@
-+<?php
-+
-+namespace Drupal\Core\Recipe;
-+
-+/**
-+ * Exception thrown when a recipe has configuration with unmet dependencies.
-+ *
-+ * @internal
-+ *   This API is experimental.
-+ */
-+final class RecipeUnmetDependenciesException extends \RuntimeException {
-+
-+  /**
-+   * Constructs a RecipeUnmetDependenciesException.
-+   *
-+   * @param string $configName
-+   *   The configuration name that has missing dependencies.
-+   * @param string $message
-+   *   [optional] The Exception message to throw.
-+   * @param int $code
-+   *   [optional] The Exception code.
-+   * @param null|\Throwable $previous
-+   *   [optional] The previous throwable used for the exception chaining.
-+   */
-+  public function __construct(public readonly string $configName, string $message = "", int $code = 0, ?\Throwable $previous = NULL) {
-+    parent::__construct($message, $code, $previous);
-+  }
-+
-+}
 diff --git a/core/lib/Drupal/Core/Recipe/UnknownRecipeException.php b/core/lib/Drupal/Core/Recipe/UnknownRecipeException.php
 new file mode 100644
 index 0000000000..9351ba4dc6
@@ -3505,103 +3576,8 @@ index 0000000000..d19474c620
 +  }
 +
 +}
-diff --git a/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml b/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml
-index 3ee0d2360d..6526996af2 100644
---- a/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml
-+++ b/core/modules/config/tests/config_collection_install_test/config_collection_install_test.services.yml
-@@ -1,5 +1,5 @@
- services:
--  config_events_test.event_subscriber:
-+  config_collection_install_test.event_subscriber:
-     class: Drupal\config_collection_install_test\EventSubscriber
-     arguments: ['@state']
-     tags:
-diff --git a/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php b/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php
-index 7f6a60f237..bc907ce3cd 100644
---- a/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php
-+++ b/core/modules/config/tests/config_collection_install_test/src/EventSubscriber.php
-@@ -2,8 +2,8 @@
- 
- namespace Drupal\config_collection_install_test;
- 
-+use Drupal\Core\Config\ConfigCollectionEvents;
- use Drupal\Core\Config\ConfigCollectionInfo;
--use Drupal\Core\Config\ConfigEvents;
- use Drupal\Core\State\StateInterface;
- use Symfony\Component\EventDispatcher\EventSubscriberInterface;
- 
-@@ -27,7 +27,7 @@ public function __construct(StateInterface $state) {
-   }
- 
-   /**
--   * Reacts to the ConfigEvents::COLLECTION_INFO event.
-+   * Reacts to the ConfigCollectionEvents::COLLECTION_INFO event.
-    *
-    * @param \Drupal\Core\Config\ConfigCollectionInfo $collection_info
-    *   The configuration collection info event.
-@@ -43,7 +43,7 @@ public function addCollections(ConfigCollectionInfo $collection_info) {
-    * {@inheritdoc}
-    */
-   public static function getSubscribedEvents(): array {
--    $events[ConfigEvents::COLLECTION_INFO][] = ['addCollections'];
-+    $events[ConfigCollectionEvents::COLLECTION_INFO][] = ['addCollections'];
-     return $events;
-   }
- 
-diff --git a/core/modules/config/tests/config_events_test/src/EventSubscriber.php b/core/modules/config/tests/config_events_test/src/EventSubscriber.php
-index 8a79b8b606..bca146547b 100644
---- a/core/modules/config/tests/config_events_test/src/EventSubscriber.php
-+++ b/core/modules/config/tests/config_events_test/src/EventSubscriber.php
-@@ -2,6 +2,7 @@
- 
- namespace Drupal\config_events_test;
- 
-+use Drupal\Core\Config\ConfigCollectionEvents;
- use Drupal\Core\Config\ConfigCrudEvent;
- use Drupal\Core\Config\ConfigEvents;
- use Drupal\Core\State\StateInterface;
-@@ -31,17 +32,24 @@ public function __construct(StateInterface $state) {
-    *
-    * @param \Drupal\Core\Config\ConfigCrudEvent $event
-    *   The configuration event.
--   * @param string $name
-+   * @param string $event_name
-    *   The event name.
-    */
--  public function configEventRecorder(ConfigCrudEvent $event, $name) {
-+  public function configEventRecorder(ConfigCrudEvent $event, $event_name) {
-     $config = $event->getConfig();
--    $this->state->set('config_events_test.event', [
--      'event_name' => $name,
-+    $event_info = [
-+      'event_name' => $event_name,
-       'current_config_data' => $config->get(),
-       'original_config_data' => $config->getOriginal(),
-       'raw_config_data' => $config->getRawData(),
--    ]);
-+    ];
-+    $this->state->set('config_events_test.event', $event_info);
-+
-+    // Record all events that occur.
-+    $all_events = $this->state->get('config_events_test.all_events', []);
-+    $config_name = $config->getName();
-+    $all_events[$event_name][$config_name][] = $event_info;
-+    $this->state->set('config_events_test.all_events', $all_events);
-   }
- 
-   /**
-@@ -51,6 +59,9 @@ public static function getSubscribedEvents(): array {
-     $events[ConfigEvents::SAVE][] = ['configEventRecorder'];
-     $events[ConfigEvents::DELETE][] = ['configEventRecorder'];
-     $events[ConfigEvents::RENAME][] = ['configEventRecorder'];
-+    $events[ConfigCollectionEvents::SAVE_IN_COLLECTION][] = ['configEventRecorder'];
-+    $events[ConfigCollectionEvents::DELETE_IN_COLLECTION][] = ['configEventRecorder'];
-+    $events[ConfigCollectionEvents::RENAME_IN_COLLECTION][] = ['configEventRecorder'];
-     return $events;
-   }
- 
 diff --git a/core/modules/config/tests/config_test/config/schema/config_test.schema.yml b/core/modules/config/tests/config_test/config/schema/config_test.schema.yml
-index 2a707facb0..b6b59ec5e3 100644
+index 98e6be0a69..57a43821f4 100644
 --- a/core/modules/config/tests/config_test/config/schema/config_test.schema.yml
 +++ b/core/modules/config/tests/config_test/config/schema/config_test.schema.yml
 @@ -24,6 +24,9 @@ config_test_dynamic:
@@ -3866,7 +3842,7 @@ index 30a7a3526d..0ff6bdd5a8 100644
 +
  }
 diff --git a/core/modules/filter/src/Entity/FilterFormat.php b/core/modules/filter/src/Entity/FilterFormat.php
-index b47ed360cd..17da5a274f 100644
+index 1742bcf1b4..699b6a99d4 100644
 --- a/core/modules/filter/src/Entity/FilterFormat.php
 +++ b/core/modules/filter/src/Entity/FilterFormat.php
 @@ -3,9 +3,11 @@
@@ -3889,253 +3865,6 @@ index b47ed360cd..17da5a274f 100644
    public function setFilterConfig($instance_id, array $configuration) {
      $this->filters[$instance_id] = $configuration;
      if (isset($this->filterCollection)) {
-diff --git a/core/modules/language/src/Config/LanguageConfigOverride.php b/core/modules/language/src/Config/LanguageConfigOverride.php
-index 3b3b4da3c6..e55425d233 100644
---- a/core/modules/language/src/Config/LanguageConfigOverride.php
-+++ b/core/modules/language/src/Config/LanguageConfigOverride.php
-@@ -3,6 +3,8 @@
- namespace Drupal\language\Config;
- 
- use Drupal\Core\Cache\Cache;
-+use Drupal\Core\Config\ConfigCollectionEvents;
-+use Drupal\Core\Config\ConfigCrudEvent;
- use Drupal\Core\Config\StorableConfigBase;
- use Drupal\Core\Config\StorageInterface;
- use Drupal\Core\Config\TypedConfigManagerInterface;
-@@ -62,6 +64,11 @@ public function save($has_trusted_data = FALSE) {
-     // an update of configuration, but only for a specific language.
-     Cache::invalidateTags($this->getCacheTags());
-     $this->isNew = FALSE;
-+    // Dispatch configuration override event as detailed in
-+    // \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject().
-+    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigCollectionEvents::SAVE_IN_COLLECTION);
-+    // Dispatch an event specifically for language configuration override
-+    // changes.
-     $this->eventDispatcher->dispatch(new LanguageConfigOverrideCrudEvent($this), LanguageConfigOverrideEvents::SAVE_OVERRIDE);
-     $this->originalData = $this->data;
-     return $this;
-@@ -75,6 +82,11 @@ public function delete() {
-     $this->storage->delete($this->name);
-     Cache::invalidateTags($this->getCacheTags());
-     $this->isNew = TRUE;
-+    // Dispatch configuration override event as detailed in
-+    // \Drupal\Core\Config\ConfigFactoryOverrideInterface::createConfigObject().
-+    $this->eventDispatcher->dispatch(new ConfigCrudEvent($this), ConfigCollectionEvents::DELETE_IN_COLLECTION);
-+    // Dispatch an event specifically for language configuration override
-+    // changes.
-     $this->eventDispatcher->dispatch(new LanguageConfigOverrideCrudEvent($this), LanguageConfigOverrideEvents::DELETE_OVERRIDE);
-     $this->originalData = $this->data;
-     return $this;
-diff --git a/core/modules/language/tests/language_events_test/config/schema/config_events_test.schema.yml b/core/modules/language/tests/language_events_test/config/schema/config_events_test.schema.yml
-new file mode 100644
-index 0000000000..2153cc24fa
---- /dev/null
-+++ b/core/modules/language/tests/language_events_test/config/schema/config_events_test.schema.yml
-@@ -0,0 +1,7 @@
-+config_events_test.test:
-+  type: config_object
-+  label: 'Configuration events test'
-+  mapping:
-+    key:
-+      type: string
-+      label: 'Value'
-diff --git a/core/modules/language/tests/language_events_test/language_events_test.info.yml b/core/modules/language/tests/language_events_test/language_events_test.info.yml
-new file mode 100644
-index 0000000000..0bf0bd633e
---- /dev/null
-+++ b/core/modules/language/tests/language_events_test/language_events_test.info.yml
-@@ -0,0 +1,4 @@
-+name: 'Language events test'
-+type: module
-+package: Testing
-+version: VERSION
-diff --git a/core/modules/language/tests/language_events_test/language_events_test.services.yml b/core/modules/language/tests/language_events_test/language_events_test.services.yml
-new file mode 100644
-index 0000000000..5bba4650ee
---- /dev/null
-+++ b/core/modules/language/tests/language_events_test/language_events_test.services.yml
-@@ -0,0 +1,6 @@
-+services:
-+  language_events_test.event_subscriber:
-+    class: Drupal\language_events_test\EventSubscriber
-+    arguments: ['@state']
-+    tags:
-+      - { name: event_subscriber }
-diff --git a/core/modules/language/tests/language_events_test/src/EventSubscriber.php b/core/modules/language/tests/language_events_test/src/EventSubscriber.php
-new file mode 100644
-index 0000000000..e805b9fc62
---- /dev/null
-+++ b/core/modules/language/tests/language_events_test/src/EventSubscriber.php
-@@ -0,0 +1,56 @@
-+<?php
-+
-+namespace Drupal\language_events_test;
-+
-+use Drupal\Core\State\StateInterface;
-+use Drupal\language\Config\LanguageConfigOverrideEvents;
-+use Drupal\language\Config\LanguageConfigOverrideCrudEvent;
-+use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-+
-+class EventSubscriber implements EventSubscriberInterface {
-+
-+  /**
-+   * Constructs the Event Subscriber object.
-+   *
-+   * @param \Drupal\Core\State\StateInterface $state
-+   *   The state key value store.
-+   */
-+  public function __construct(private StateInterface $state) {
-+  }
-+
-+  /**
-+   * Reacts to config event.
-+   *
-+   * @param \Drupal\language\Config\LanguageConfigOverrideCrudEvent $event
-+   *   The language configuration event.
-+   * @param string $event_name
-+   *   The event name.
-+   */
-+  public function configEventRecorder(LanguageConfigOverrideCrudEvent $event, string $event_name): void {
-+    $override = $event->getLanguageConfigOverride();
-+    $event_info = [
-+      'event_name' => $event_name,
-+      'current_override_data' => $override->get(),
-+      'original_override_data' => $override->getOriginal(),
-+    ];
-+
-+    // Record all events that occur.
-+    $all_events = $this->state->get('language_events_test.all_events', []);
-+    $override_name = $override->getName();
-+    if (!isset($all_events[$event_name][$override_name])) {
-+      $all_events[$event_name][$override_name] = [];
-+    }
-+    $all_events[$event_name][$override_name][] = $event_info;
-+    $this->state->set('language_events_test.all_events', $all_events);
-+  }
-+
-+  /**
-+   * {@inheritdoc}
-+   */
-+  public static function getSubscribedEvents(): array {
-+    $events[LanguageConfigOverrideEvents::SAVE_OVERRIDE][] = ['configEventRecorder'];
-+    $events[LanguageConfigOverrideEvents::DELETE_OVERRIDE][] = ['configEventRecorder'];
-+    return $events;
-+  }
-+
-+}
-diff --git a/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php b/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php
-index 2600627b3a..5657cf7eb3 100644
---- a/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php
-+++ b/core/modules/language/tests/src/Functional/LanguageConfigOverrideImportTest.php
-@@ -2,6 +2,7 @@
- 
- namespace Drupal\Tests\language\Functional;
- 
-+use Drupal\Core\Config\ConfigCollectionEvents;
- use Drupal\language\Entity\ConfigurableLanguage;
- use Drupal\Tests\BrowserTestBase;
- 
-@@ -91,7 +92,12 @@ public function testConfigOverrideImportEvents() {
-     // Test that no config save event has been fired during the import because
-     // language configuration overrides do not fire events.
-     $event_recorder = \Drupal::state()->get('config_events_test.event', FALSE);
--    $this->assertFalse($event_recorder);
-+    $this->assertSame([
-+      'event_name' => ConfigCollectionEvents::SAVE_IN_COLLECTION,
-+      'current_config_data' => ['name' => 'FR default site name'],
-+      'original_config_data' => [],
-+      'raw_config_data' => ['name' => 'FR default site name'],
-+    ], $event_recorder);
- 
-     $this->drupalGet('fr');
-     $this->assertSession()->pageTextContains('FR default site name');
-diff --git a/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php b/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php
-index 1883e93133..20d83179ca 100644
---- a/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php
-+++ b/core/modules/language/tests/src/Kernel/LanguageConfigOverrideInstallTest.php
-@@ -2,6 +2,8 @@
- 
- namespace Drupal\Tests\language\Kernel;
- 
-+use Drupal\Core\Config\ConfigCollectionEvents;
-+use Drupal\language\Config\LanguageConfigOverrideEvents;
- use Drupal\language\Entity\ConfigurableLanguage;
- use Drupal\KernelTests\KernelTestBase;
- 
-@@ -17,22 +19,71 @@ class LanguageConfigOverrideInstallTest extends KernelTestBase {
-    *
-    * @var array
-    */
--  protected static $modules = ['language', 'config_events_test'];
-+  protected static $modules = ['language', 'config_events_test', 'language_events_test'];
- 
-   /**
-    * Tests the configuration events are not fired during install of overrides.
-    */
-   public function testLanguageConfigOverrideInstall() {
-+    $this->installConfig(['language']);
-     ConfigurableLanguage::createFromLangcode('de')->save();
-     // Need to enable test module after creating the language otherwise saving
-     // the language will install the configuration.
-     $this->enableModules(['language_config_override_test']);
-     \Drupal::state()->set('config_events_test.event', FALSE);
-+    \Drupal::state()->set('language_events_test.all_events', []);
-     $this->installConfig(['language_config_override_test']);
-+
-+    // Ensure the save-in-collection event is triggered when saving data in
-+    // config collections during an install.
-     $event_recorder = \Drupal::state()->get('config_events_test.event', FALSE);
--    $this->assertFalse($event_recorder);
-+    $this->assertSame([
-+      'event_name' => ConfigCollectionEvents::SAVE_IN_COLLECTION,
-+      'current_config_data' => ['name' => 'Deutsch'],
-+      'original_config_data' => [],
-+      'raw_config_data' => ['name' => 'Deutsch'],
-+    ], $event_recorder);
-     $config = \Drupal::service('language.config_factory_override')->getOverride('de', 'language_config_override_test.settings');
-     $this->assertEquals('Deutsch', $config->get('name'));
-+
-+    // Ensure the save override event is triggered when saving overrides during
-+    // an install.
-+    $event_recorder = \Drupal::state()->get('language_events_test.all_events', []);
-+    $this->assertArrayHasKey(LanguageConfigOverrideEvents::SAVE_OVERRIDE, $event_recorder);
-+    $this->assertArrayHasKey('language_config_override_test.settings', $event_recorder[LanguageConfigOverrideEvents::SAVE_OVERRIDE]);
-+    $this->assertSame([
-+      'event_name' => LanguageConfigOverrideEvents::SAVE_OVERRIDE,
-+      'current_override_data' => ['name' => 'Deutsch'],
-+      'original_override_data' => [],
-+    ], $event_recorder['language.save_override']['language_config_override_test.settings'][0]);
-+
-+    // Test events during uninstall.
-+    \Drupal::state()->set('config_events_test.all_events', []);
-+    \Drupal::state()->set('language_events_test.all_events', []);
-+    $this->container->get('module_installer')->uninstall(['language_config_override_test']);
-+
-+    // Ensure the delete-in-collection event is triggered when deleting data in
-+    // config collections during an uninstall.
-+    $event_recorder = \Drupal::state()->get('config_events_test.all_events', []);
-+    $this->assertArrayHasKey(ConfigCollectionEvents::DELETE_IN_COLLECTION, $event_recorder);
-+    $this->assertArrayHasKey('language_config_override_test.settings', $event_recorder[ConfigCollectionEvents::DELETE_IN_COLLECTION]);
-+    $this->assertSame([
-+      'event_name' => ConfigCollectionEvents::DELETE_IN_COLLECTION,
-+      'current_config_data' => [],
-+      'original_config_data' => ['name' => 'Deutsch'],
-+      'raw_config_data' => [],
-+    ], $event_recorder[ConfigCollectionEvents::DELETE_IN_COLLECTION]['language_config_override_test.settings'][0]);
-+
-+    // Ensure the delete override event is triggered when deleting overrides
-+    // during an uninstall.
-+    $event_recorder = \Drupal::state()->get('language_events_test.all_events', []);
-+    $this->assertArrayHasKey(LanguageConfigOverrideEvents::DELETE_OVERRIDE, $event_recorder);
-+    $this->assertArrayHasKey('language_config_override_test.settings', $event_recorder[LanguageConfigOverrideEvents::DELETE_OVERRIDE]);
-+    $this->assertSame([
-+      'event_name' => LanguageConfigOverrideEvents::DELETE_OVERRIDE,
-+      'current_override_data' => [],
-+      'original_override_data' => ['name' => 'Deutsch'],
-+    ], $event_recorder['language.delete_override']['language_config_override_test.settings'][0]);
-   }
- 
- }
 diff --git a/core/modules/user/src/Entity/Role.php b/core/modules/user/src/Entity/Role.php
 index 18194f3390..68ddd501f5 100644
 --- a/core/modules/user/src/Entity/Role.php
@@ -4247,17 +3976,18 @@ index 891d5b8117..0c9eb300cd 100644
  $application->run();
 diff --git a/core/tests/Drupal/FunctionalTests/Core/Recipe/RecipeCommandTest.php b/core/tests/Drupal/FunctionalTests/Core/Recipe/RecipeCommandTest.php
 new file mode 100644
-index 0000000000..8128c2ef6e
+index 0000000000..0b5c8ed145
 --- /dev/null
 +++ b/core/tests/Drupal/FunctionalTests/Core/Recipe/RecipeCommandTest.php
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,94 @@
 +<?php
++
++declare(strict_types=1);
 +
 +namespace Drupal\FunctionalTests\Core\Recipe;
 +
++use Drupal\Core\Config\Checkpoint\Checkpoint;
 +use Drupal\Tests\BrowserTestBase;
-+use Symfony\Component\Process\PhpExecutableFinder;
-+use Symfony\Component\Process\Process;
 +
 +/**
 + * @coversDefaultClass \Drupal\Core\Recipe\RecipeCommand
@@ -4267,44 +3997,145 @@ index 0000000000..8128c2ef6e
 + */
 +class RecipeCommandTest extends BrowserTestBase {
 +
++  use RecipeTestTrait;
++
 +  /**
 +   * {@inheritdoc}
 +   */
 +  protected $defaultTheme = 'stark';
 +
++  /**
++   * {@inheritdoc}
++   *
++   * Disable strict config schema because this test explicitly makes the
++   * recipe system save invalid config, to prove that it validates it after
++   * the fact and raises an error.
++   */
++  protected $strictConfigSchema = FALSE;
++
 +  public function testRecipeCommand(): void {
 +    $this->assertFalse(\Drupal::moduleHandler()->moduleExists('node'), 'The node module is not installed');
-+    $php_executable_finder = new PhpExecutableFinder();
-+    $php = $php_executable_finder->find();
++    $this->assertCheckpointsExist([]);
 +
-+    $recipe_command = [
-+      $php,
-+      'core/scripts/drupal',
-+      'recipe',
-+      'core/tests/fixtures/recipes/install_node_with_config',
-+    ];
-+    $process = new Process($recipe_command, NULL, ['DRUPAL_DEV_SITE_PATH' => $this->siteDirectory]);
-+    $process->setTimeout(500);
-+    $status = $process->run();
-+    $this->assertSame(0, $status);
++    $process = $this->applyRecipe('core/tests/fixtures/recipes/install_node_with_config');
++    $this->assertSame(0, $process->getExitCode());
 +    $this->assertSame('', $process->getErrorOutput());
 +    $this->assertStringContainsString('Install node with config applied successfully', $process->getOutput());
-+
-+    $this->rebuildAll();
 +    $this->assertTrue(\Drupal::moduleHandler()->moduleExists('node'), 'The node module is installed');
++    $this->assertCheckpointsExist(["Backup before the 'Install node with config' recipe."]);
++
++    // Ensure recipes can be applied without affecting pre-existing checkpoints.
++    $process = $this->applyRecipe('core/tests/fixtures/recipes/install_two_modules');
++    $this->assertSame(0, $process->getExitCode());
++    $this->assertSame('', $process->getErrorOutput());
++    $this->assertStringContainsString('Install two modules applied successfully', $process->getOutput());
++    $this->assertTrue(\Drupal::moduleHandler()->moduleExists('node'), 'The node module is installed');
++    $this->assertCheckpointsExist([
++      "Backup before the 'Install node with config' recipe.",
++      "Backup before the 'Install two modules' recipe.",
++    ]);
 +
 +    // Ensure recipes that fail have an exception message.
-+    $recipe_command = [
-+      $php,
++    $process = $this->applyRecipe('core/tests/fixtures/recipes/invalid_config');
++    $this->assertSame(1, $process->getExitCode());
++    $this->assertStringContainsString("There were validation errors in core.date_format.invalid", $process->getErrorOutput());
++    $this->assertCheckpointsExist([
++      "Backup before the 'Install node with config' recipe.",
++      "Backup before the 'Install two modules' recipe.",
++      // Although the recipe command tried to create a checkpoint, it did not
++      // actually happen, because of https://drupal.org/i/3408523.
++    ]);
++
++    // Create a checkpoint so we can test what happens when a recipe does not
++    // create a checkpoint before applying.
++    \Drupal::service('config.storage.checkpoint')->checkpoint('Test log message');
++    $process = $this->applyRecipe('core/tests/fixtures/recipes/no_extensions');
++    $this->assertSame(0, $process->getExitCode());
++    $this->assertSame('', $process->getErrorOutput());
++    $this->assertCheckpointsExist([
++      "Backup before the 'Install node with config' recipe.",
++      "Backup before the 'Install two modules' recipe.",
++      "Test log message",
++    ]);
++    $this->assertStringContainsString('[notice] A backup checkpoint was not created because nothing has changed since the "Test log message" checkpoint was created.', $process->getOutput());
++  }
++
++  /**
++   * Asserts that the current set of checkpoints matches the given labels.
++   *
++   * @param string[] $expected_labels
++   *   The labels of every checkpoint that is expected to exist currently, in
++   *   the expected order.
++   */
++  private function assertCheckpointsExist(array $expected_labels): void {
++    $checkpoints = \Drupal::service('config.checkpoints');
++    $labels = array_map(fn (Checkpoint $c) => $c->label, iterator_to_array($checkpoints));
++    $this->assertSame($expected_labels, array_values($labels));
++  }
++
++}
+diff --git a/core/tests/Drupal/FunctionalTests/Core/Recipe/RecipeTestTrait.php b/core/tests/Drupal/FunctionalTests/Core/Recipe/RecipeTestTrait.php
+new file mode 100644
+index 0000000000..48a7373964
+--- /dev/null
++++ b/core/tests/Drupal/FunctionalTests/Core/Recipe/RecipeTestTrait.php
+@@ -0,0 +1,59 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Drupal\FunctionalTests\Core\Recipe;
++
++use Drupal\Tests\BrowserTestBase;
++use Symfony\Component\Process\PhpExecutableFinder;
++use Symfony\Component\Process\Process;
++
++/**
++ * Contains helper methods for interacting with recipes in functional tests.
++ */
++trait RecipeTestTrait {
++
++  /**
++   * Applies a recipe to the site.
++   *
++   * @param string $path
++   *   The path of the recipe to apply. Must be a directory.
++   *
++   * @return \Symfony\Component\Process\Process
++   *   The `drupal recipe` command process, after having run.
++   */
++  protected function applyRecipe(string $path): Process {
++    assert($this instanceof BrowserTestBase);
++    $this->assertDirectoryExists($path);
++
++    $arguments = [
++      (new PhpExecutableFinder())->find(),
 +      'core/scripts/drupal',
 +      'recipe',
-+      'core/tests/fixtures/recipes/missing_extensions',
++      $path,
 +    ];
-+    $process = new Process($recipe_command, NULL, ['DRUPAL_DEV_SITE_PATH' => $this->siteDirectory]);
-+    $process->setTimeout(500);
-+    $status = $process->run();
-+    $this->assertSame(1, $status);
-+    $this->assertStringContainsString("The following extensions are missing and are required for this recipe: does  \n  _not_exist_one, does_not_exist_two", $process->getErrorOutput());
++    $process = (new Process($arguments))
++      ->setWorkingDirectory($this->getDrupalRoot())
++      ->setEnv([
++        'DRUPAL_DEV_SITE_PATH' => $this->siteDirectory,
++        // Ensure that the command boots Drupal into a state where it knows it's
++        // a test site.
++        // @see drupal_valid_test_ua()
++        'HTTP_USER_AGENT' => drupal_generate_test_ua($this->databasePrefix),
++      ])
++      ->setTimeout(500);
++
++    $process->run();
++    // Applying a recipe:
++    // - creates new checkpoints, hence the "state" service in the test runner
++    //   is outdated
++    // - may install modules, which would cause the entire container in the test
++    //   runner to be outdated.
++    // Hence the entire environment must be rebuilt for assertions to target the
++    // actual post-recipe-application result.
++    // @see \Drupal\Core\Config\Checkpoint\LinearHistory::__construct()
++    $this->rebuildAll();
++    return $process;
 +  }
 +
 +}
@@ -4636,112 +4467,6 @@ index 0000000000..3681457776
 +  }
 +
 +}
-diff --git a/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php b/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
-index 9f4b9aa31b..bf17339b8b 100644
---- a/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
-+++ b/core/tests/Drupal/KernelTests/Core/Config/ConfigImporterTest.php
-@@ -4,6 +4,7 @@
- 
- use Drupal\Component\Utility\Html;
- use Drupal\Component\Render\FormattableMarkup;
-+use Drupal\Core\Config\ConfigCollectionEvents;
- use Drupal\Core\Config\ConfigEvents;
- use Drupal\Core\Config\ConfigImporter;
- use Drupal\Core\Config\ConfigImporterException;
-@@ -930,6 +931,44 @@ public function testConfigEvents(): void {
-     $this->assertSame(['key' => 'bar'], $event['original_config_data']);
-   }
- 
-+  /**
-+   * Tests events and collections during a config import.
-+   */
-+  public function testEventsAndCollectionsImport(): void {
-+    $collections = [
-+      'another_collection',
-+      'collection.test1',
-+      'collection.test2',
-+    ];
-+    // Set the event listener to return three possible collections.
-+    // @see \Drupal\config_collection_install_test\EventSubscriber
-+    \Drupal::state()->set('config_collection_install_test.collection_names', $collections);
-+    $this->enableModules(['config_collection_install_test']);
-+    $this->installConfig(['config_collection_install_test']);
-+
-+    // Export the configuration and uninstall the module to test installing it
-+    // via configuration import.
-+    $this->copyConfig($this->container->get('config.storage'), $this->container->get('config.storage.sync'));
-+    $this->container->get('module_installer')->uninstall(['config_collection_install_test']);
-+    $this->assertEmpty($this->container->get('config.storage')->getAllCollectionNames());
-+
-+    \Drupal::state()->set('config_events_test.all_events', []);
-+    $this->configImporter()->import();
-+    $this->assertSame($collections, $this->container->get('config.storage')->getAllCollectionNames());
-+
-+    $all_events = \Drupal::state()->get('config_events_test.all_events');
-+    $this->assertArrayHasKey('core.extension', $all_events[ConfigEvents::SAVE]);
-+    // Ensure that config in collections does not have the regular configuration
-+    // event triggered.
-+    $this->assertArrayNotHasKey('config_collection_install_test.test', $all_events[ConfigEvents::SAVE]);
-+    $this->assertCount(3, $all_events[ConfigCollectionEvents::SAVE_IN_COLLECTION]['config_collection_install_test.test']);
-+    $event_collections = [];
-+    foreach ($all_events[ConfigCollectionEvents::SAVE_IN_COLLECTION]['config_collection_install_test.test'] as $event) {
-+      $event_collections[] = $event['current_config_data']['collection'];
-+    }
-+    $this->assertSame($collections, $event_collections);
-+  }
-+
-   /**
-    * Helper method to test custom config installer steps.
-    *
-diff --git a/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php b/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php
-index 604ab1df36..4655ae374e 100644
---- a/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php
-+++ b/core/tests/Drupal/KernelTests/Core/Config/ConfigInstallTest.php
-@@ -2,6 +2,7 @@
- 
- namespace Drupal\KernelTests\Core\Config;
- 
-+use Drupal\Core\Config\ConfigCollectionEvents;
- use Drupal\Core\Config\InstallStorage;
- use Drupal\Core\Config\PreExistingConfigException;
- use Drupal\Core\Config\UnmetDependenciesException;
-@@ -18,7 +19,7 @@ class ConfigInstallTest extends KernelTestBase {
-   /**
-    * {@inheritdoc}
-    */
--  protected static $modules = ['system'];
-+  protected static $modules = ['system', 'config_events_test'];
- 
-   /**
-    * {@inheritdoc}
-@@ -146,10 +147,25 @@ public function testCollectionInstallationCollections() {
- 
-     // Test that the config manager uninstalls configuration from collections
-     // as expected.
--    \Drupal::service('config.manager')->uninstall('module', 'config_collection_install_test');
-+    \Drupal::state()->set('config_events_test.all_events', []);
-+    $this->container->get('config.manager')->uninstall('module', 'config_collection_install_test');
-+    $all_events = \Drupal::state()->get('config_events_test.all_events');
-+    $this->assertArrayHasKey(ConfigCollectionEvents::DELETE_IN_COLLECTION, $all_events);
-+    // The delete-in-collection event has been triggered 3 times.
-+    $this->assertCount(3, $all_events[ConfigCollectionEvents::DELETE_IN_COLLECTION]['config_collection_install_test.test']);
-+    $event_collections = [];
-+    foreach ($all_events[ConfigCollectionEvents::DELETE_IN_COLLECTION]['config_collection_install_test.test'] as $event) {
-+      $event_collections[] = $event['original_config_data']['collection'];
-+    }
-+    $this->assertSame(['another_collection', 'collection.test1', 'collection.test2'], $event_collections);
-     $this->assertEquals(['entity'], $active_storage->getAllCollectionNames());
--    \Drupal::service('config.manager')->uninstall('module', 'config_test');
-+
-+    \Drupal::state()->set('config_events_test.all_events', []);
-+    $this->container->get('config.manager')->uninstall('module', 'config_test');
-     $this->assertEquals([], $active_storage->getAllCollectionNames());
-+    $all_events = \Drupal::state()->get('config_events_test.all_events');
-+    $this->assertArrayHasKey(ConfigCollectionEvents::DELETE_IN_COLLECTION, $all_events);
-+    $this->assertCount(1, $all_events[ConfigCollectionEvents::DELETE_IN_COLLECTION]['config_test.dynamic.dotted.default']);
-   }
- 
-   /**
 diff --git a/core/tests/Drupal/KernelTests/Core/Config/Storage/Checkpoint/CheckpointStorageTest.php b/core/tests/Drupal/KernelTests/Core/Config/Storage/Checkpoint/CheckpointStorageTest.php
 new file mode 100644
 index 0000000000..9032d234bc
@@ -5058,12 +4783,248 @@ index 0000000000..9032d234bc
 +  }
 +
 +}
+diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/ConfigActionValidationTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/ConfigActionValidationTest.php
+new file mode 100644
+index 0000000000..1bb576365f
+--- /dev/null
++++ b/core/tests/Drupal/KernelTests/Core/Recipe/ConfigActionValidationTest.php
+@@ -0,0 +1,97 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Drupal\KernelTests\Core\Recipe;
++
++use Drupal\Core\Entity\EntityTypeManagerInterface;
++use Drupal\Core\Recipe\InvalidConfigException;
++use Drupal\Core\Recipe\Recipe;
++use Drupal\Core\Recipe\RecipeRunner;
++use Drupal\KernelTests\KernelTestBase;
++
++/**
++ * @group Recipe
++ */
++class ConfigActionValidationTest extends KernelTestBase {
++
++  /**
++   * {@inheritdoc}
++   */
++  protected static $modules = [
++    'block_content',
++    'link',
++    'node',
++    'shortcut',
++    'system',
++  ];
++
++  /**
++   * {@inheritdoc}
++   *
++   * This test requires that we save invalid config, so we can test that it gets
++   * validated after applying a recipe.
++   */
++  protected $strictConfigSchema = FALSE;
++
++  /**
++   * {@inheritdoc}
++   */
++  protected function setUp(): void {
++    parent::setUp();
++    $this->installConfig('shortcut');
++    $this->installEntitySchema('shortcut');
++  }
++
++  /**
++   * @testWith ["block_content_type"]
++   *   ["node_type"]
++   *   ["shortcut_set"]
++   *   ["menu"]
++   */
++  public function testConfigActionsAreValidated(string $entity_type_id): void {
++    /** @var \Drupal\Core\Config\Entity\ConfigEntityStorageInterface $storage */
++    $storage = $this->container->get(EntityTypeManagerInterface::class)
++      ->getStorage($entity_type_id);
++
++    /** @var \Drupal\Core\Config\Entity\ConfigEntityTypeInterface $entity_type */
++    $entity_type = $storage->getEntityType();
++    // If there is a label key, it's safe to assume that it's not allowed to be
++    // empty. We don't care whether it's immutable; we just care that the value
++    // the config action sets it to (an empty string) violates config schema.
++    $label_key = $entity_type->getKey('label');
++    $this->assertNotEmpty($label_key);
++    $entity = $storage->create([
++      $entity_type->getKey('id') => 'test',
++      $label_key => 'Test',
++    ]);
++    $entity->save();
++
++    $config_name = $entity->getConfigDependencyName();
++    $recipe_data = <<<YAML
++name: Config actions making bad decisions
++config:
++  actions:
++    $config_name:
++      simple_config_update:
++        $label_key: ''
++YAML;
++
++    $dir = uniqid('public://');
++    mkdir($dir);
++    file_put_contents($dir . '/recipe.yml', $recipe_data);
++
++    $recipe = Recipe::createFromDirectory($dir);
++    try {
++      RecipeRunner::processRecipe($recipe);
++      $this->fail('An exception should have been thrown.');
++    }
++    catch (InvalidConfigException $e) {
++      $this->assertCount(1, $e->violations);
++      $violation = $e->violations->get(0);
++      $this->assertSame($label_key, $violation->getPropertyPath());
++      $this->assertSame("This value should not be blank.", (string) $violation->getMessage());
++    }
++  }
++
++}
+diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/ConfigConfiguratorTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/ConfigConfiguratorTest.php
+new file mode 100644
+index 0000000000..b91ea75b37
+--- /dev/null
++++ b/core/tests/Drupal/KernelTests/Core/Recipe/ConfigConfiguratorTest.php
+@@ -0,0 +1,46 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Drupal\KernelTests\Core\Recipe;
++
++use Drupal\Component\Serialization\Yaml;
++use Drupal\Core\Recipe\Recipe;
++use Drupal\KernelTests\KernelTestBase;
++
++/**
++ * @covers \Drupal\Core\Recipe\ConfigConfigurator
++ * @group Recipe
++ */
++class ConfigConfiguratorTest extends KernelTestBase {
++
++  public function testExistingConfigWithKeysInDifferentOrder(): void {
++    $recipe_dir = uniqid('public://recipe_test_');
++    mkdir($recipe_dir . '/config', recursive: TRUE);
++
++    $this->enableModules(['system']);
++    $this->installConfig('system');
++    /** @var mixed[][] $original_data */
++    $original_data = $this->config('system.site')->get();
++    // Remove keys that are ignored during the comparison.
++    unset($original_data['uuid'], $original_data['_core']);
++    $recipe_data = $original_data;
++    // Reorder an inner array, to ensure keys are sorted recursively.
++    $recipe_data['page'] = array_reverse($original_data['page'], TRUE);
++    $this->assertNotSame($original_data, $recipe_data);
++    file_put_contents($recipe_dir . '/config/system.site.yml', Yaml::encode($recipe_data));
++
++    $recipe = [
++      'name' => 'Same config, different order',
++      'type' => 'Testing',
++    ];
++    file_put_contents($recipe_dir . '/recipe.yml', Yaml::encode($recipe));
++
++    // If there was a conflict with the pre-existing config, ConfigConfigurator
++    // would throw an exception and the recipe would not be created. So all we
++    // need to do here is assert that, in fact, we were able to create a recipe
++    // object.
++    $this->assertInstanceOf(Recipe::class, Recipe::createFromDirectory($recipe_dir));
++  }
++
++}
+diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/ConfigValidationTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/ConfigValidationTest.php
+new file mode 100644
+index 0000000000..686d6e79d6
+--- /dev/null
++++ b/core/tests/Drupal/KernelTests/Core/Recipe/ConfigValidationTest.php
+@@ -0,0 +1,75 @@
++<?php
++
++namespace Drupal\KernelTests\Core\Recipe;
++
++use Drupal\Component\Serialization\Yaml;
++use Drupal\Core\Recipe\InvalidConfigException;
++use Drupal\Core\Recipe\Recipe;
++use Drupal\Core\Recipe\RecipeRunner;
++use Drupal\KernelTests\KernelTestBase;
++
++/**
++ * @group Recipe
++ */
++class ConfigValidationTest extends KernelTestBase {
++
++  /**
++   * {@inheritdoc}
++   *
++   * This test depends on us being able to create invalid config, so we can
++   * ensure that validatable config is validated by the recipe runner.
++   */
++  protected $strictConfigSchema = FALSE;
++
++  /**
++   * Creates a recipe with invalid config data in a particular file.
++   *
++   * @param string $file
++   *   The name of the file (in the recipe's `config` directory) which should
++   *   have invalid data.
++   *
++   * @return \Drupal\Core\Recipe\Recipe
++   *   A wrapper around the created recipe.
++   */
++  private function createRecipeWithInvalidDataInFile(string $file): Recipe {
++    $dir = uniqid('public://');
++    mkdir($dir . '/config', recursive: TRUE);
++
++    $data = file_get_contents($this->getDrupalRoot() . '/core/modules/config/tests/config_test/config/install/config_test.types.yml');
++    assert(is_string($data));
++    $data = Yaml::decode($data);
++    // The `array` key needs to be an array, not an integer. If the config is
++    // validated, this will raise a validation error.
++    /** @var mixed[] $data */
++    $data['array'] = 39;
++    file_put_contents($dir . '/config/' . $file, Yaml::encode($data));
++
++    $recipe = <<<YAML
++name: Config validation test
++install:
++  - config_test
++YAML;
++    file_put_contents($dir . '/recipe.yml', $recipe);
++
++    return Recipe::createFromDirectory($dir);
++  }
++
++  /**
++   * Tests that the recipe runner only validates config which is validatable.
++   */
++  public function testValidatableConfigIsValidated(): void {
++    // Since config_test.types is not validatable, there should not be a
++    // validation error.
++    $recipe = $this->createRecipeWithInvalidDataInFile('config_test.types.yml');
++    RecipeRunner::processRecipe($recipe);
++    $this->assertFalse($this->config('config_test.types')->isNew());
++
++    // If we create a config object which IS fully validatable, and has invalid
++    // data, we should get a validation error.
++    $recipe = $this->createRecipeWithInvalidDataInFile('config_test.types.fully_validatable.yml');
++    $this->expectException(InvalidConfigException::class);
++    $this->expectExceptionMessage('There were validation errors in config_test.types.fully_validatable');
++    RecipeRunner::processRecipe($recipe);
++  }
++
++}
 diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/RecipeDiscoveryTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeDiscoveryTest.php
 new file mode 100644
-index 0000000000..faf87866ee
+index 0000000000..daa0a98b9d
 --- /dev/null
 +++ b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeDiscoveryTest.php
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,63 @@
 +<?php
 +
 +namespace Drupal\KernelTests\Core\Recipe;
@@ -5115,19 +5076,24 @@ index 0000000000..faf87866ee
 +      $this->fail('Expected exception not thrown');
 +    }
 +    catch (UnknownRecipeException $e) {
++      $root = $this->getDrupalRoot();
 +      $this->assertSame($recipe, $e->recipe);
-+      $this->assertSame(['core/tests/fixtures/recipes'], $e->searchPaths);
-+      $this->assertSame('Can not find the ' . $recipe . ' recipe, search paths: core/tests/fixtures/recipes', $e->getMessage());
++      $this->assertSame([
++        'core/tests/fixtures/recipes',
++        $root . '/recipes',
++        $root . '/core/recipes',
++      ], $e->searchPaths);
++      $this->assertSame('Can not find the ' . $recipe . ' recipe, search paths: ' . implode(', ', $e->searchPaths), $e->getMessage());
 +    }
 +  }
 +
 +}
 diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/RecipeRunnerTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeRunnerTest.php
 new file mode 100644
-index 0000000000..f7042a78c7
+index 0000000000..c220ed133c
 --- /dev/null
 +++ b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeRunnerTest.php
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,196 @@
 +<?php
 +
 +namespace Drupal\KernelTests\Core\Recipe;
@@ -5135,7 +5101,6 @@ index 0000000000..f7042a78c7
 +use Drupal\Core\Recipe\Recipe;
 +use Drupal\Core\Recipe\RecipePreExistingConfigException;
 +use Drupal\Core\Recipe\RecipeRunner;
-+use Drupal\Core\Recipe\RecipeUnmetDependenciesException;
 +use Drupal\KernelTests\KernelTestBase;
 +use Drupal\node\Entity\NodeType;
 +use Drupal\views\Entity\View;
@@ -5204,19 +5169,7 @@ index 0000000000..f7042a78c7
 +    $node_type_data = $this->config('node.type.test')->get();
 +    $this->assertGreaterThan(0, strlen($node_type_data['uuid']), 'The node type configuration has been assigned a UUID.');
 +    // cSpell:disable-next-line
-+    $this->assertSame('965SCwSA3qgVf47x7hEE4dufnUDpxKMsUfsqFtqjGn0', $node_type_data['_core']['default_config_hash']);
-+  }
-+
-+  public function testUnmetConfigurationDependencies(): void {
-+    $recipe = Recipe::createFromDirectory('core/tests/fixtures/recipes/unmet_config_dependencies');
-+    try {
-+      RecipeRunner::processRecipe($recipe);
-+      $this->fail('Expected exception not thrown');
-+    }
-+    catch (RecipeUnmetDependenciesException $e) {
-+      $this->assertSame("The configuration 'node.type.test' has unmet dependencies", $e->getMessage());
-+      $this->assertSame('node.type.test', $e->configName);
-+    }
++    $this->assertSame('8Jlq8CmNXHVtNIHBHgFGpnAKthlUz0XoW_D0g56QXqY', $node_type_data['_core']['default_config_hash']);
 +  }
 +
 +  public function testApplySameRecipe(): void {
@@ -5339,19 +5292,17 @@ index 0000000000..f7042a78c7
 +}
 diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/RecipeTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeTest.php
 new file mode 100644
-index 0000000000..56a52fb877
+index 0000000000..d54ec5cdfe
 --- /dev/null
 +++ b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeTest.php
-@@ -0,0 +1,108 @@
+@@ -0,0 +1,75 @@
 +<?php
 +
 +namespace Drupal\KernelTests\Core\Recipe;
 +
 +use Drupal\Core\Recipe\Recipe;
 +use Drupal\Core\Recipe\RecipeFileException;
-+use Drupal\Core\Recipe\RecipeMissingExtensionsException;
 +use Drupal\Core\Recipe\RecipePreExistingConfigException;
-+use Drupal\Core\Recipe\UnknownRecipeException;
 +use Drupal\KernelTests\KernelTestBase;
 +
 +/**
@@ -5385,32 +5336,12 @@ index 0000000000..56a52fb877
 +  }
 +
 +  public function testCreateFromDirectoryNoRecipe(): void {
++    $dir = uniqid('public://');
++    mkdir($dir);
++
 +    $this->expectException(RecipeFileException::class);
-+    $this->expectExceptionMessage('There is no core/tests/fixtures/recipes/no_recipe/recipe.yml file');
-+    Recipe::createFromDirectory('core/tests/fixtures/recipes/no_recipe');
-+  }
-+
-+  public function testCreateFromDirectoryNoRecipeName(): void {
-+    $this->expectException(RecipeFileException::class);
-+    $this->expectExceptionMessage('The core/tests/fixtures/recipes/no_name/recipe.yml has no name value.');
-+    Recipe::createFromDirectory('core/tests/fixtures/recipes/no_name');
-+  }
-+
-+  public function testCreateFromDirectoryMissingExtensions(): void {
-+    $this->enableModules(['module_test']);
-+
-+    // Create a missing fake dependency.
-+    // dblog will depend on Config, which depends on a non-existing module Foo.
-+    // Nothing should be installed.
-+    \Drupal::state()->set('module_test.dependency', 'missing dependency');
-+
-+    try {
-+      Recipe::createFromDirectory('core/tests/fixtures/recipes/missing_extensions');
-+      $this->fail('Expected exception not thrown');
-+    }
-+    catch (RecipeMissingExtensionsException $e) {
-+      $this->assertSame(['does_not_exist_one', 'does_not_exist_two', 'foo'], $e->extensions);
-+    }
++    $this->expectExceptionMessage('There is no ' . $dir . '/recipe.yml file');
++    Recipe::createFromDirectory($dir);
 +  }
 +
 +  public function testPreExistingDifferentConfiguration(): void {
@@ -5439,15 +5370,593 @@ index 0000000000..56a52fb877
 +    $this->assertSame('core/tests/fixtures/recipes/install_node_with_config/config', $recipe->config->recipeConfigDirectory);
 +  }
 +
-+  public function testRecipeIncludeMissing(): void {
++}
+diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/RecipeValidationTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeValidationTest.php
+new file mode 100644
+index 0000000000..3857229530
+--- /dev/null
++++ b/core/tests/Drupal/KernelTests/Core/Recipe/RecipeValidationTest.php
+@@ -0,0 +1,350 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Drupal\KernelTests\Core\Recipe;
++
++use Drupal\Core\Recipe\Recipe;
++use Drupal\Core\Recipe\RecipeFileException;
++use Drupal\KernelTests\KernelTestBase;
++
++/**
++ * @group Recipe
++ */
++class RecipeValidationTest extends KernelTestBase {
++
++  /**
++   * Data provider for ::testRecipeValidation().
++   *
++   * @return array[]
++   *   The test cases.
++   */
++  public static function providerRecipeValidation(): iterable {
++    yield 'name is correct' => [
++      'name: Correct name',
++      NULL,
++    ];
++    yield 'name missing' => [
++      '{}',
++      [
++        '[name]' => ['This field is missing.'],
++      ],
++    ];
++    yield 'name is not a string' => [
++      'name: 39',
++      [
++        '[name]' => ['This value should be of type string.'],
++      ],
++    ];
++    yield 'name is null' => [
++      'name: ~',
++      [
++        '[name]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'name is blank' => [
++      "name: ''",
++      [
++        '[name]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'name has invalid characters' => [
++      <<<YAML
++name: |
++  My
++  Amazing Recipe
++YAML,
++      [
++        '[name]' => ['Recipe names cannot span multiple lines or contain control characters.'],
++      ],
++    ];
++    yield 'description is correct' => [
++      <<<YAML
++name: Correct description
++description: 'This is the correct description of a recipe.'
++YAML,
++      NULL,
++    ];
++    yield 'description is not a string' => [
++      <<<YAML
++name: Bad description
++description: [Nope!]
++YAML,
++      [
++        '[description]' => ['This value should be of type string.'],
++      ],
++    ];
++    yield 'description is blank' => [
++      <<<YAML
++name: Blank description
++description: ''
++YAML,
++      [
++        '[description]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'description is null' => [
++      <<<YAML
++name: Null description
++description: ~
++YAML,
++      [
++        '[description]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'description contains control characters' => [
++      <<<YAML
++name: Bad description
++description: "I have a\b bad character."
++YAML,
++      [
++        '[description]' => ['The recipe description cannot contain control characters, only visible characters.'],
++      ],
++    ];
++    yield 'type is correct' => [
++      <<<YAML
++name: Correct type
++type: Testing
++YAML,
++      NULL,
++    ];
++    yield 'type is not a string' => [
++      <<<YAML
++name: Bad type
++type: 39
++YAML,
++      [
++        '[type]' => ['This value should be of type string.'],
++      ],
++    ];
++    yield 'type is blank' => [
++      <<<YAML
++name: Blank type
++type: ''
++YAML,
++      [
++        '[type]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'type is null' => [
++      <<<YAML
++name: Null type
++type: ~
++YAML,
++      [
++        '[type]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'type has invalid characters' => [
++      <<<YAML
++name: Invalid type
++type: |
++  My
++  Amazing Recipe
++YAML,
++      [
++        '[type]' => ['Recipe type cannot span multiple lines or contain control characters.'],
++      ],
++    ];
++    // @todo Test valid recipe once https://www.drupal.org/i/3421197 is in.
++    yield 'recipes list is scalar' => [
++      <<<YAML
++name: Bad recipe list
++recipes: 39
++YAML,
++      [
++        '[recipes]' => ['This value should be of type iterable.'],
++      ],
++    ];
++    yield 'recipes list has a blank entry' => [
++      <<<YAML
++name: Invalid recipe
++recipes: ['']
++YAML,
++      [
++        '[recipes][0]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'recipes list has a non-existent recipe' => [
++      <<<YAML
++name: Non-existent recipe
++recipes:
++  - vaporware
++YAML,
++      [
++        '[recipes][0]' => ['The vaporware recipe does not exist.'],
++      ],
++    ];
++    yield 'recipe depends on itself' => [
++      <<<YAML
++name: 'Inception'
++recipes:
++  - no_extensions
++YAML,
++      [
++        '[recipes][0]' => ['The "no_extensions" recipe cannot depend on itself.'],
++      ],
++      'no_extensions',
++    ];
++    yield 'extension list is scalar' => [
++      <<<YAML
++name: Bad extension list
++install: 39
++YAML,
++      [
++        '[install]' => ['This value should be of type iterable.'],
++      ],
++    ];
++    yield 'extension list has a blank entry' => [
++      <<<YAML
++name: Blank extension list
++install: ['']
++YAML,
++      [
++        '[install][0]' => ['This value should not be blank.'],
++      ],
++    ];
++    yield 'installing unknown extensions' => [
++      <<<YAML
++name: 'Unknown extensions'
++install:
++  - config test
++  - drupal:color
++YAML,
++      [
++        '[install][0]' => ['"config test" is not a known module or theme.'],
++        '[install][1]' => ['"color" is not a known module or theme.'],
++      ],
++    ];
++    yield 'only installs extension' => [
++      <<<YAML
++name: 'Only installs extensions'
++install:
++  - filter
++  - drupal:claro
++YAML,
++      NULL,
++    ];
++    yield 'config import list is valid' => [
++      <<<YAML
++name: 'Correct config import list'
++config:
++  import:
++    config_test: '*'
++    claro:
++      - claro.settings
++YAML,
++      NULL,
++    ];
++    yield 'config import list is scalar' => [
++      <<<YAML
++name: 'Bad config import list'
++config:
++  import: 23
++YAML,
++      [
++        '[config][import]' => ['This value should be of type iterable.'],
++      ],
++    ];
++    yield 'config import list has a blank entry' => [
++      <<<YAML
++name: Blank config import list
++config:
++  import: ['']
++YAML,
++      [
++        '[config][import][0]' => ['This value should satisfy at least one of the following constraints: [1] This value should be identical to string "*". [2] Each element of this collection should satisfy its own set of constraints.'],
++      ],
++    ];
++    yield 'config actions list is valid' => [
++      <<<YAML
++name: 'Correct config actions list'
++config:
++  actions:
++    config_test.dynamic.recipe:
++      ensure_exists:
++        label: 'Created by recipe'
++      setProtectedProperty: 'Set by recipe'
++YAML,
++      NULL,
++    ];
++    yield 'config actions list is scalar' => [
++      <<<YAML
++name: 'Bad config actions list'
++config:
++  actions: 23
++YAML,
++      [
++        '[config][actions]' => ['This value should be of type iterable.'],
++      ],
++    ];
++    yield 'config actions list has a blank entry' => [
++      <<<YAML
++name: Blank config actions list
++config:
++  actions: ['']
++YAML,
++      [
++        '[config][actions][0]' => [
++          'This value should be of type array.',
++          'This value should not be blank.',
++        ],
++      ],
++    ];
++    // @todo Uncomment this in https://drupal.org/i/3423523.
++    // @codingStandardsIgnoreStart
++//     yield 'non-existent config action' => [
++//       <<<YAML
++//name: Non-existent config action
++//config:
++//   actions:
++//     user.role.anonymous:
++//       some_non_existent_action: '*'
++//YAML,
++//       [],
++//     ];
++     // @codingStandardsIgnoreEnd
++  }
++
++  /**
++   * Tests the validation of recipe.yml file.
++   *
++   * @param string $recipe
++   *   The contents of the `recipe.yml` file.
++   * @param string[][]|null $expected_violations
++   *   (Optional) The expected validation violations, keyed by property path.
++   *   Each value should be an array of error messages expected for that
++   *   property.
++   * @param string|null $recipe_name
++   *   (optional) The name of the directory containing `recipe.yml`, or NULL to
++   *   randomly generate one.
++   *
++   * @dataProvider providerRecipeValidation
++   */
++  public function testRecipeValidation(string $recipe, ?array $expected_violations, ?string $recipe_name = NULL): void {
++    $dir = 'public://' . ($recipe_name ?? uniqid());
++    mkdir($dir);
++    file_put_contents($dir . '/recipe.yml', $recipe);
++
 +    try {
-+      Recipe::createFromDirectory('core/tests/fixtures/recipes/recipe_include_missing');
++      Recipe::createFromDirectory($dir);
++      // If there was no error, we'd better not have been expecting any.
++      $this->assertNull($expected_violations, 'Validation errors were expected, but there were none.');
 +    }
-+    catch (UnknownRecipeException $e) {
-+      $this->assertSame('does_not_exist', $e->recipe);
-+      $this->assertSame(['core/tests/fixtures/recipes'], $e->searchPaths);
-+      $this->assertSame('Can not find the does_not_exist recipe, search paths: core/tests/fixtures/recipes', $e->getMessage());
++    catch (RecipeFileException $e) {
++      $this->assertIsArray($expected_violations, 'There were validation errors, but none were expected.');
++      $this->assertIsObject($e->violations);
++
++      $actual_violations = [];
++      /** @var \Symfony\Component\Validator\ConstraintViolationInterface $violation */
++      foreach ($e->violations as $violation) {
++        $property_path = $violation->getPropertyPath();
++        $actual_violations[$property_path][] = (string) $violation->getMessage();
++      }
++      ksort($actual_violations);
++      ksort($expected_violations);
++      $this->assertSame($expected_violations, $actual_violations);
 +    }
++  }
++
++}
+diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/RollbackTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/RollbackTest.php
+new file mode 100644
+index 0000000000..561c1c0f39
+--- /dev/null
++++ b/core/tests/Drupal/KernelTests/Core/Recipe/RollbackTest.php
+@@ -0,0 +1,80 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Drupal\KernelTests\Core\Recipe;
++
++use Drupal\Core\Config\Checkpoint\Checkpoint;
++use Drupal\Core\Datetime\Entity\DateFormat;
++use Drupal\Core\Recipe\Recipe;
++use Drupal\FunctionalTests\Core\Recipe\RecipeTestTrait;
++use Drupal\Tests\BrowserTestBase;
++
++/**
++ * @group Recipe
++ */
++class RollbackTest extends BrowserTestBase {
++
++  use RecipeTestTrait;
++
++  /**
++   * {@inheritdoc}
++   *
++   * Disable strict config schema because this test explicitly makes the
++   * recipe system save invalid config, to prove that it validates it after
++   * the fact and raises an error.
++   */
++  protected $strictConfigSchema = FALSE;
++
++  /**
++   * {@inheritdoc}
++   */
++  protected $defaultTheme = 'stark';
++
++  /**
++   * {@inheritdoc}
++   */
++  protected static $modules = [
++    'system',
++    'user',
++  ];
++
++  /**
++   * @testWith ["invalid_config", "core.date_format.invalid"]
++   *           ["recipe_depend_on_invalid", "core.date_format.invalid"]
++   *           ["recipe_depend_on_invalid_config_and_valid_modules", "core.date_format.invalid"]
++   */
++  public function testRollbackForInvalidConfig(string $recipe_fixture, string $expected_invalid_config_name): void {
++    $expected_core_extension_modules = $this->config('core.extension')->get('module');
++
++    /** @var string $recipe_fixture */
++    $recipe_fixture = realpath(__DIR__ . "/../../../../fixtures/recipes/$recipe_fixture");
++    $process = $this->applyRecipe($recipe_fixture);
++    $this->assertGreaterThan(0, $process->getExitCode());
++    $this->assertStringContainsString("There were validation errors in $expected_invalid_config_name:", $process->getErrorOutput());
++    $this->assertCheckpointsExist([
++      "Backup before the '" . Recipe::createFromDirectory($recipe_fixture)->name . "' recipe.",
++    ]);
++
++    // @see invalid_config
++    $date_formats = DateFormat::loadMultiple(['valid', 'invalid']);
++    $this->assertEmpty($date_formats, "The recipe's imported config was not rolled back.");
++
++    // @see recipe_depend_on_invalid_config_and_valid_module
++    $this->assertSame($expected_core_extension_modules, $this->config('core.extension')->get('module'));
++  }
++
++  /**
++   * Asserts that the current set of checkpoints matches the given labels.
++   *
++   * @param string[] $expected_labels
++   *   The labels of every checkpoint that is expected to exist currently, in
++   *   the expected order.
++   */
++  private function assertCheckpointsExist(array $expected_labels): void {
++    $checkpoints = \Drupal::service('config.checkpoints');
++    $labels = array_map(fn (Checkpoint $c) => $c->label, iterator_to_array($checkpoints));
++    $this->assertSame($expected_labels, array_values($labels));
++  }
++
++}
+diff --git a/core/tests/Drupal/KernelTests/Core/Recipe/WildcardConfigActionsTest.php b/core/tests/Drupal/KernelTests/Core/Recipe/WildcardConfigActionsTest.php
+new file mode 100644
+index 0000000000..760f538fd3
+--- /dev/null
++++ b/core/tests/Drupal/KernelTests/Core/Recipe/WildcardConfigActionsTest.php
+@@ -0,0 +1,141 @@
++<?php
++
++declare(strict_types=1);
++
++namespace Drupal\KernelTests\Core\Recipe;
++
++use Drupal\Core\Config\Action\ConfigActionException;
++use Drupal\Core\Entity\EntityTypeManagerInterface;
++use Drupal\Core\Recipe\Recipe;
++use Drupal\Core\Recipe\RecipeRunner;
++use Drupal\entity_test\Entity\EntityTestBundle;
++use Drupal\field\Entity\FieldConfig;
++use Drupal\field\Entity\FieldStorageConfig;
++use Drupal\KernelTests\KernelTestBase;
++use Drupal\Tests\node\Traits\ContentTypeCreationTrait;
++
++/**
++ * Tests config actions targeting multiple entities using wildcards.
++ *
++ * @group Recipe
++ */
++class WildcardConfigActionsTest extends KernelTestBase {
++
++  use ContentTypeCreationTrait;
++
++  /**
++   * {@inheritdoc}
++   */
++  protected static $modules = [
++    'entity_test',
++    'field',
++    'node',
++    'system',
++    'text',
++    'user',
++  ];
++
++  /**
++   * {@inheritdoc}
++   */
++  protected function setUp(): void {
++    parent::setUp();
++    $this->installConfig('node');
++
++    $this->createContentType(['type' => 'one']);
++    $this->createContentType(['type' => 'two']);
++
++    EntityTestBundle::create(['id' => 'one'])->save();
++    EntityTestBundle::create(['id' => 'two'])->save();
++
++    $field_storage = FieldStorageConfig::create([
++      'entity_type' => 'entity_test_with_bundle',
++      'field_name' => 'field_test',
++      'type' => 'boolean',
++    ]);
++    $field_storage->save();
++    FieldConfig::create(['field_storage' => $field_storage, 'bundle' => 'one'])
++      ->save();
++    FieldConfig::create(['field_storage' => $field_storage, 'bundle' => 'two'])
++      ->save();
++
++    $field_storage = FieldStorageConfig::create([
++      'entity_type' => 'node',
++      'field_name' => 'field_test',
++      'type' => 'boolean',
++    ]);
++    $field_storage->save();
++    FieldConfig::create(['field_storage' => $field_storage, 'bundle' => 'one'])
++      ->save();
++    FieldConfig::create(['field_storage' => $field_storage, 'bundle' => 'two'])
++      ->save();
++  }
++
++  /**
++   * Tests targeting multiple config entities for an action, using wildcards.
++   *
++   * @param string $expression
++   *   The expression the recipe will use to target multiple config entities.
++   * @param string[] $expected_changed_entities
++   *   The IDs of the config entities that we expect the recipe to change.
++   *
++   * @testWith ["field.field.node.one.*", ["node.one.body", "node.one.field_test"]]
++   *   ["field.field.node.*.body", ["node.one.body", "node.two.body"]]
++   *   ["field.field.*.one.field_test", ["entity_test_with_bundle.one.field_test", "node.one.field_test"]]
++   *   ["field.field.node.*.*", ["node.one.body", "node.one.field_test", "node.two.body", "node.two.field_test"]]
++   *   ["field.field.*.one.*", ["entity_test_with_bundle.one.field_test", "node.one.field_test", "node.one.body"]]
++   *   ["field.field.*.*.field_test", ["entity_test_with_bundle.one.field_test", "entity_test_with_bundle.two.field_test", "node.one.field_test", "node.two.field_test"]]
++   *   ["field.field.*.*.*", ["entity_test_with_bundle.one.field_test", "entity_test_with_bundle.two.field_test", "node.one.field_test", "node.two.field_test", "node.one.body", "node.two.body"]]
++   */
++  public function testTargetEntitiesByWildcards(string $expression, array $expected_changed_entities): void {
++    $contents = <<<YAML
++name: 'Wildcards!'
++config:
++  actions:
++    $expression:
++      setLabel: 'Changed by config action'
++YAML;
++
++    $dir = uniqid('public://');
++    mkdir($dir);
++    file_put_contents($dir . '/recipe.yml', $contents);
++    $recipe = Recipe::createFromDirectory($dir);
++    RecipeRunner::processRecipe($recipe);
++
++    $changed = $this->container->get(EntityTypeManagerInterface::class)
++      ->getStorage('field_config')
++      ->getQuery()
++      ->condition('label', 'Changed by config action')
++      ->execute();
++    sort($expected_changed_entities);
++    sort($changed);
++    $this->assertSame($expected_changed_entities, array_values($changed));
++  }
++
++  /**
++   * Tests that an invalid wildcard expression will raise an error.
++   *
++   * @testWith ["field.*.node.one.*", "No installed config entity type uses the prefix in the expression 'field.*.node.one.*'. Either there is a typo in the expression or this recipe should install an additional module or depend on another recipe."]
++   *   ["field.field.node.*.body/", " could not be parsed."]
++   */
++  public function testInvalidExpression(string $expression, string $expected_exception_message): void {
++    $contents = <<<YAML
++name: 'Wildcards gone wild...'
++config:
++  actions:
++    $expression:
++      simple_config_update:
++        label: 'Changed by config action'
++YAML;
++
++    $dir = uniqid('public://');
++    mkdir($dir);
++    file_put_contents($dir . '/recipe.yml', $contents);
++    $recipe = Recipe::createFromDirectory($dir);
++
++    $this->expectException(ConfigActionException::class);
++    $this->expectExceptionMessage($expected_exception_message);
++    RecipeRunner::processRecipe($recipe);
 +  }
 +
 +}
@@ -6345,36 +6854,37 @@ index 0000000000..5aa1d937ae
 +404: foo
 diff --git a/core/tests/fixtures/recipes/config_from_module_and_recipe/recipe.yml b/core/tests/fixtures/recipes/config_from_module_and_recipe/recipe.yml
 new file mode 100644
-index 0000000000..91b42de456
+index 0000000000..58771fd7b6
 --- /dev/null
 +++ b/core/tests/fixtures/recipes/config_from_module_and_recipe/recipe.yml
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,11 @@
 +name: 'Config from module and recipe'
 +type: 'Testing'
 +install:
 +  - config_test
-+  - tour
-+  - tour_test
++  - shortcut
++  - system
 +config:
 +  import:
 +    config_test: '*'
-+    tour_test:
-+      - tour.tour.tour-test
-+      - tour.tour.tour-test2
++    shortcut:
++      - shortcut.set.default
 diff --git a/core/tests/fixtures/recipes/config_wildcard/recipe.yml b/core/tests/fixtures/recipes/config_wildcard/recipe.yml
 new file mode 100644
-index 0000000000..582f7aeb89
+index 0000000000..9c4e68af24
 --- /dev/null
 +++ b/core/tests/fixtures/recipes/config_wildcard/recipe.yml
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,10 @@
 +name: 'Config wildcard'
 +type: 'Testing'
 +install:
 +  - config_test
-+  - tour
++  - shortcut
++  - system
 +config:
 +  import:
 +    config_test: '*'
++    shortcut: ~
 diff --git a/core/tests/fixtures/recipes/install_node_with_config/config/node.settings.yml b/core/tests/fixtures/recipes/install_node_with_config/config/node.settings.yml
 new file mode 100644
 index 0000000000..6cb95cbc42
@@ -6384,7 +6894,7 @@ index 0000000000..6cb95cbc42
 +use_admin_theme: true
 diff --git a/core/tests/fixtures/recipes/install_node_with_config/config/node.type.test.yml b/core/tests/fixtures/recipes/install_node_with_config/config/node.type.test.yml
 new file mode 100644
-index 0000000000..567eb1bfe9
+index 0000000000..adffa484d4
 --- /dev/null
 +++ b/core/tests/fixtures/recipes/install_node_with_config/config/node.type.test.yml
 @@ -0,0 +1,9 @@
@@ -6393,7 +6903,7 @@ index 0000000000..567eb1bfe9
 +name: 'Test content type'
 +type: test
 +description: 'Test content type from a recipe'
-+help: ''
++help: null
 +new_revision: true
 +preview_mode: 1
 +display_submitted: true
@@ -6419,18 +6929,47 @@ index 0000000000..ee57ca146d
 +install:
 +  - node
 +  - text
-diff --git a/core/tests/fixtures/recipes/missing_extensions/recipe.yml b/core/tests/fixtures/recipes/missing_extensions/recipe.yml
+diff --git a/core/tests/fixtures/recipes/invalid_config/config/core.date_format.invalid.yml b/core/tests/fixtures/recipes/invalid_config/config/core.date_format.invalid.yml
 new file mode 100644
-index 0000000000..77c82fbeee
+index 0000000000..6bfb62960d
 --- /dev/null
-+++ b/core/tests/fixtures/recipes/missing_extensions/recipe.yml
-@@ -0,0 +1,6 @@
-+name: 'Missing extensions'
++++ b/core/tests/fixtures/recipes/invalid_config/config/core.date_format.invalid.yml
+@@ -0,0 +1,14 @@
++langcode: en
++status: true
++dependencies:
++  config:
++    # Depend on the valid date format in order to ensure it is imported first,
++    # which means we can ensure it was rolled back when this date format raises
++    # a validation error.
++    - core.date_format.valid
++id: invalid
++# Null isn't a valid value for the label, so this should raise a validation
++# error.
++label: null
++locked: false
++pattern: 'F j, Y'
+diff --git a/core/tests/fixtures/recipes/invalid_config/config/core.date_format.valid.yml b/core/tests/fixtures/recipes/invalid_config/config/core.date_format.valid.yml
+new file mode 100644
+index 0000000000..7e44681983
+--- /dev/null
++++ b/core/tests/fixtures/recipes/invalid_config/config/core.date_format.valid.yml
+@@ -0,0 +1,7 @@
++langcode: en
++status: true
++dependencies: {  }
++id: valid
++label: 'Valid date format'
++locked: false
++pattern: 'F j, Y'
+diff --git a/core/tests/fixtures/recipes/invalid_config/recipe.yml b/core/tests/fixtures/recipes/invalid_config/recipe.yml
+new file mode 100644
+index 0000000000..5f5cb88e78
+--- /dev/null
++++ b/core/tests/fixtures/recipes/invalid_config/recipe.yml
+@@ -0,0 +1,2 @@
++name: 'Invalid config'
 +type: 'Testing'
-+install:
-+  - does_not_exist_one
-+  - does_not_exist_two
-+  - dblog
 diff --git a/core/tests/fixtures/recipes/no_extensions/recipe.yml b/core/tests/fixtures/recipes/no_extensions/recipe.yml
 new file mode 100644
 index 0000000000..b7d3aeb4f0
@@ -6440,19 +6979,30 @@ index 0000000000..b7d3aeb4f0
 +name: 'No extensions'
 +description: 'A recipe description'
 +type: 'Testing'
-diff --git a/core/tests/fixtures/recipes/no_name/recipe.yml b/core/tests/fixtures/recipes/no_name/recipe.yml
+diff --git a/core/tests/fixtures/recipes/recipe_depend_on_invalid/recipe.yml b/core/tests/fixtures/recipes/recipe_depend_on_invalid/recipe.yml
 new file mode 100644
-index 0000000000..65daa60d08
+index 0000000000..c2cd6b73cd
 --- /dev/null
-+++ b/core/tests/fixtures/recipes/no_name/recipe.yml
-@@ -0,0 +1 @@
++++ b/core/tests/fixtures/recipes/recipe_depend_on_invalid/recipe.yml
+@@ -0,0 +1,4 @@
++name: 'Recipe depending on an invalid recipe'
 +type: 'Testing'
-diff --git a/core/tests/fixtures/recipes/no_recipe/.gitkeep b/core/tests/fixtures/recipes/no_recipe/.gitkeep
++recipes:
++  - invalid_config
+diff --git a/core/tests/fixtures/recipes/recipe_depend_on_invalid_config_and_valid_modules/recipe.yml b/core/tests/fixtures/recipes/recipe_depend_on_invalid_config_and_valid_modules/recipe.yml
 new file mode 100644
-index 0000000000..e69de29bb2
+index 0000000000..5e487e35a7
+--- /dev/null
++++ b/core/tests/fixtures/recipes/recipe_depend_on_invalid_config_and_valid_modules/recipe.yml
+@@ -0,0 +1,5 @@
++name: 'Recipe depending on first installing modules, then a recipe with invalid config'
++type: 'Testing'
++recipes:
++  - install_two_modules
++  - invalid_config
 diff --git a/core/tests/fixtures/recipes/recipe_include/config/node.type.another_test.yml b/core/tests/fixtures/recipes/recipe_include/config/node.type.another_test.yml
 new file mode 100644
-index 0000000000..48a9258b63
+index 0000000000..884f144dc7
 --- /dev/null
 +++ b/core/tests/fixtures/recipes/recipe_include/config/node.type.another_test.yml
 @@ -0,0 +1,9 @@
@@ -6461,7 +7011,7 @@ index 0000000000..48a9258b63
 +name: 'Another test content type'
 +type: another_test
 +description: 'Another test content type from a recipe'
-+help: ''
++help: null
 +new_revision: true
 +preview_mode: 1
 +display_submitted: true
@@ -6477,19 +7027,6 @@ index 0000000000..a81aa075c0
 +  - install_node_with_config
 +install:
 +  - dblog
-diff --git a/core/tests/fixtures/recipes/recipe_include_missing/recipe.yml b/core/tests/fixtures/recipes/recipe_include_missing/recipe.yml
-new file mode 100644
-index 0000000000..b80db734fb
---- /dev/null
-+++ b/core/tests/fixtures/recipes/recipe_include_missing/recipe.yml
-@@ -0,0 +1,7 @@
-+name: 'Recipe include'
-+type: 'Testing'
-+recipes:
-+  - recipe_include
-+  - does_not_exist
-+install:
-+  - config_test
 diff --git a/core/tests/fixtures/recipes/theme_with_module_dependencies/recipe.yml b/core/tests/fixtures/recipes/theme_with_module_dependencies/recipe.yml
 new file mode 100644
 index 0000000000..550c3610a9
@@ -6503,19 +7040,22 @@ index 0000000000..550c3610a9
 +  - test_module_required_by_theme
 diff --git a/core/tests/fixtures/recipes/unmet_config_dependencies/config/node.type.test.yml b/core/tests/fixtures/recipes/unmet_config_dependencies/config/node.type.test.yml
 new file mode 100644
-index 0000000000..567eb1bfe9
+index 0000000000..93a92f106d
 --- /dev/null
 +++ b/core/tests/fixtures/recipes/unmet_config_dependencies/config/node.type.test.yml
-@@ -0,0 +1,9 @@
+@@ -0,0 +1,12 @@
 +langcode: en
 +status: true
 +name: 'Test content type'
 +type: test
 +description: 'Test content type from a recipe'
-+help: ''
++help: null
 +new_revision: true
 +preview_mode: 1
 +display_submitted: true
++dependencies:
++  config:
++    - core.date_format.non_existent
 diff --git a/core/tests/fixtures/recipes/unmet_config_dependencies/recipe.yml b/core/tests/fixtures/recipes/unmet_config_dependencies/recipe.yml
 new file mode 100644
 index 0000000000..e90fca9157

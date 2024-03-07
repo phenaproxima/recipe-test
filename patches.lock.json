@@ -1,20 +1,20 @@
 {
-    "_hash": "c92be5e4047d907ef7009bba31dc33d7928b3b002d8861e404f2bad05a11f8b9",
+    "_hash": "e65f356ce9cab52d622633a00e83eef6f60e26bff9d6c7873c14b4dbcdac6b2c",
     "patches": {
         "drupal/core": [
             {
                 "package": "drupal/core",
                 "description": "Add recipe support",
-                "url": "./patches/recipe-10.2.x-a14918e9a7057af3bf2449435d28f534c7ecc757.diff",
-                "sha256": "c6bc7ff39cd918a899a37f931e7a6c6e86dc16504af7380f5bb89416f661e450",
+                "url": "./patches/recipes-11.x-2024-03-07.diff",
+                "sha256": "28fc92eff2ae62dce16622517021445e4f0c7ee8e58a605bf2be990bcce11b21",
                 "depth": 2,
                 "extra": []
             },
             {
                 "package": "drupal/core",
                 "description": "Model Standard as a set of recipes",
-                "url": "./patches/distributions_recipes-3301370-48.patch",
-                "sha256": "9024019ba62d0590a9bfc3a641d12dc0e6b738afec9eb5c7126cb6c41ae11505",
+                "url": "./patches/recipes-70-09c0fba0d7d1d2f1f9e346354bcc23168c6fd90c.diff",
+                "sha256": "7d08d63b7cca0095e632f81abe76ef9af4f6f9a1380eb6b824b8e2dcde751c36",
                 "depth": 2,
                 "extra": []
             }

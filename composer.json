@@ -22,10 +22,8 @@
         "composer/composer": "^2.6",
         "composer/installers": "^2.0",
         "cweagans/composer-patches": "^2@beta",
-        "drupal/automatic_updates": "3.0.x-dev",
-        "drupal/core-composer-scaffold": "10.2.x-dev",
-        "drupal/core-recommended": "10.2.x-dev",
-        "drupal/project_browser": "1.0.x-dev",
+        "drupal/core-composer-scaffold": "11.x-dev",
+        "drupal/core-recommended": "11.x-dev",
         "drush/drush": "^12.4",
         "ewcomposer/unpack": "1.x-dev@dev",
         "oomphinc/composer-installers-extender": "^2.0"
@@ -90,8 +88,8 @@
         ],
         "patches": {
             "drupal/core": {
-                "Add recipe support": "./patches/recipe-10.2.x-a14918e9a7057af3bf2449435d28f534c7ecc757.diff",
-                "Model Standard as a set of recipes": "./patches/distributions_recipes-3301370-48.patch"
+                "Add recipe support": "./patches/recipes-11.x-2024-03-07.diff",
+                "Model Standard as a set of recipes": "./patches/recipes-70-09c0fba0d7d1d2f1f9e346354bcc23168c6fd90c.diff"
             },
             "drupal/project_browser": {
                 "Various fixes to 1.0.x for demo purposes": "./patches/project_browser-1.0.x-fixes.diff"
