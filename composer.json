@@ -24,7 +24,7 @@
         "cweagans/composer-patches": "^2@beta",
         "drupal/core-composer-scaffold": "11.x-dev",
         "drupal/core-recommended": "11.x-dev",
-        "drush/drush": "^12.4",
+        "drush/drush": "^13",
         "ewcomposer/unpack": "1.x-dev@dev",
         "oomphinc/composer-installers-extender": "^2.0"
     },
