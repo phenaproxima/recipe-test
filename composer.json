@@ -105,13 +105,13 @@
         ],
         "install-from-recipe": [
             "@composer clean",
-            "drush site:install empty --yes --db-url sqlite://$PWD/db.sqlite --account-pass admin",
+            "drush site:install empty --yes --db-url sqlite://localhost/$PWD/db.sqlite --account-pass admin",
             "cd web && php ./core/scripts/drupal recipe ./core/recipes/standard",
             "drush cache:rebuild"
         ],
         "install-drupal": [
             "@composer clean",
-            "drush site:install standard --yes --db-url sqlite://$PWD/db.sqlite --account-pass admin",
+            "drush site:install standard --yes --db-url sqlite://localhost/$PWD/db.sqlite --account-pass admin",
             "drush pm:enable --yes project_browser_recipe_demo",
             "drush config:set --yes package_manager.settings executables.composer $PWD/vendor/bin/composer",
             "drush config:set --yes package_manager.settings include_unknown_files_in_project_root true --input-format=yaml",
