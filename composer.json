@@ -100,8 +100,8 @@
     "scripts": {
         "clean": [
             "@composer remove kanopi/gin-admin-experience",
-            "chmod +w ./web/sites/default ./web/sites/default/settings.php",
-            "rm ./web/sites/default/settings.php"
+            "chmod +w ./web/sites/default",
+            "chmod +w ./web/sites/default/settings.php; rm ./web/sites/default/settings.php || true"
         ],
         "install-from-recipe": [
             "@composer clean",
